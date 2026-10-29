@@ -2,7 +2,8 @@
     stopmove - Ashita v4 addon
     Blocks the numpad movement keys while you are casting a spell, so you can't
     accidentally interrupt the cast by walking. Optionally turns Multisend follow
-    off for the length of the cast and back on afterwards.
+    and the in-game auto-follow (/follow) off for the length of the cast and back
+    on afterwards.
 
     Multi-client: if you run a second FFXI client with this addon loaded, the two
     copies detect each other. The on-screen box shows one row per character, and
@@ -12,13 +13,14 @@
         /stopmove            open / close the settings window
         /stopmove on|off     turn stopmove on or off for THIS character
         /stopmove resetbox   put the on-screen box back at normal size, top-left
+        /stopmove move       Allow Move: end the cast lock now (same as the widget button)
 
     NOTE: Keyboard movement only. Gamepad / mouse movement is not blocked.
 --]]
 
 addon.name    = 'stopmove'
 addon.author  = 'Claude'
-addon.version = '1.8'
+addon.version = '2.0'
 addon.desc    = 'Blocks numpad movement while casting (toggleable, multi-client aware).'
 addon.link    = ''
 
@@ -40,6 +42,14 @@ local lock_pos   = false  -- lock the on-screen box position and size
 local ms_enabled = true
 local ms_off_cmd = '/ms follow off'
 local ms_on_cmd  = '/ms follow on'
+local ms_quiet   = true    -- hide Multisend's "Follow is currently ..." reply to our own commands
+local QUIET_FOR  = 3       -- seconds after we send a command during which its reply is hidden
+local quiet_until = 0
+
+-- In-game auto-follow (/follow): stopped while casting, resumed on the same target after.
+local gf_enabled = true
+local gf_saved   = nil     -- { target index, server id } of the follow we stopped
+local gf_name    = ''      -- if set: after every cast, make sure we are following this character
 local CONFIRM_WITHIN = 3    -- seconds to see the cast actually begin before assuming the request failed
 local inject   = true   -- on cast start, send a key-release for movement keys you are holding
 local UNLOCK_DONE = 0.0   -- seconds before follow comes back after a COMPLETED cast
@@ -78,7 +88,9 @@ local last_move     = 0      -- os.clock() when position last changed
 
 local show_ui      = true
 local low_profile  = false  -- compact widget: first letter of each name only
+local letter_badge = false  -- low profile: letter drawn inside the ON/OFF shape (smallest widget)
 local show_cfg_btn = true   -- small 'UI' button on the widget
+local show_move_btn = true  -- 'Allow Move' button on the widget (ends the cast lock)
 local circle_fail  = false   -- set if drawing a circle failed (falls back to squares)
 local bg_fail      = false   -- set if the ImGui draw-list background failed (falls back to a plain window)
 local layout_mode  = 0      -- 0 = stacked rows, 1 = inline (name then status, long and skinny)
@@ -86,7 +98,7 @@ local rot          = 0      -- box rotation: 0, 1, 2, 3  =  0, 90, 180, 270 degr
 local refit        = true   -- resize the box to fit its content on the next frame
 local last_sig     = nil
 local last_scale   = 1.0
-local PAD          = 6      -- window padding of the on-screen box
+local PAD          = 6      -- window padding of the on-screen box (2 in letter-in-shape mode)
 
 -- per-character box position/scale (saved to char_<name>.txt) and shared-settings sync
 local char_loaded        = false
@@ -142,15 +154,6 @@ end
 local casting      = false
 local cast_started = 0
 
--- Position pin: the server interrupts a cast if your x/z changes by even ~0.05
--- between cast start and cast end. Small client-side nudges (a held key that
--- slips through for a frame) are enough to do it, so while casting we resend
--- the position the server already has, unless you have genuinely walked away.
-local pin_pos     = true
-local PIN_MAX     = 1.0     -- drift (yalms) above this is real movement: let it through
-local sent_x, sent_y = nil, nil   -- last x / y we sent in a 0x0015 position packet
-local anchor      = nil     -- { x, y } position pinned for the current cast
-
 -- multi-client sync state
 local sync_dir       = nil
 local other_clients  = {}      -- [name] = { enabled = bool } for each live second client
@@ -182,6 +185,7 @@ pcall(function()
         void*    GetForegroundWindow(void);
         uint32_t GetWindowThreadProcessId(void* hWnd, uint32_t* lpdwProcessId);
         uint32_t GetCurrentProcessId(void);
+        int16_t  GetAsyncKeyState(int vKey);
     ]]
     user32   = ffi.load('user32')
     kernel32 = ffi.load('kernel32')
@@ -220,26 +224,105 @@ local function release_held_keys()
     end
 end
 
+-- After "Allow Move": a movement key you were already holding had its press
+-- blocked, so the game thinks it is up. Send a fresh key-down for each one.
+local function repress_held_keys()
+    if not user32 or foreground_state() ~= true then return end
+    for vk, info in pairs(vk_scan) do
+        if vk_keys[vk] or (block_wasd and vk_wasd[vk]) then
+            pcall(function()
+                if bit.band(user32.GetAsyncKeyState(vk), 0x8000) ~= 0 then
+                    user32.keybd_event(vk, info[1], 0, 0)
+                end
+            end)
+        end
+    end
+end
+
 local follow_suspended = false
+local ms_suspended       = false -- did THIS cast send the Multisend "off" command?
 local resume_at          = nil   -- os.clock() time at which follow is turned back on
 local cast_confirmed     = false
 
 local function run_command(cmd)
+    quiet_until = os.clock() + QUIET_FOR
     pcall(function() AshitaCore:GetChatManager():QueueCommand(-1, cmd) end)
 end
 
--- Cast starts: turn Multisend follow off.
-local function suspend_follow()
-    if follow_suspended or not ms_enabled then return end
-    follow_suspended = true
-    if ms_off_cmd ~= '' then run_command(ms_off_cmd) end
+-- In-game auto-follow (/follow): stopped when a cast starts, then restarted on
+-- the same target once the cast is over.
+local function game_follow_stop()
+    local ok, saved = pcall(function()
+        local af = AshitaCore:GetMemoryManager():GetAutoFollow()
+        if af:GetIsAutoRunning() == 0 then return nil end
+        local idx, sid = af:GetFollowTargetIndex(), af:GetFollowTargetServerId()
+        af:SetIsAutoRunning(0)
+        af:SetFollowTargetIndex(0)
+        af:SetFollowTargetServerId(0)
+        if idx == 0 then return nil end      -- plain auto-run, not a follow: don't restart it
+        return { idx, sid }
+    end)
+    if ok then gf_saved = saved end
 end
 
--- Cast over (after any unlock wait): turn Multisend follow back on.
+local function game_follow_resume()
+    local s = gf_saved
+    gf_saved = nil
+    if not s then return end
+    pcall(function()
+        -- target gone (or its slot reused by someone else)? don't follow
+        if AshitaCore:GetMemoryManager():GetEntity():GetServerId(s[1]) ~= s[2] then return end
+        local af = AshitaCore:GetMemoryManager():GetAutoFollow()
+        af:SetFollowTargetIndex(s[1])
+        af:SetFollowTargetServerId(s[2])
+        af:SetIsAutoRunning(1)
+    end)
+end
+
+-- Follow the character typed in the settings window. Returns false when no
+-- name is set, so the caller can fall back to the follow we stopped.
+local function game_follow_named()
+    local name = gf_name:match('^%s*(.-)%s*$')
+    if name == '' then return false end
+    gf_saved = nil
+    pcall(function()
+        local mm = AshitaCore:GetMemoryManager()
+        local want = name:lower()
+        -- both clients share settings: the leader never follows itself
+        if (mm:GetParty():GetMemberName(0) or ''):lower() == want then return end
+        local ent, idx = mm:GetEntity(), nil
+        for i = 1, 2303 do
+            local n = ent:GetName(i)
+            if n and n:lower() == want and ent:GetServerId(i) ~= 0 then idx = i; break end
+        end
+        if not idx then return end           -- not in this zone: don't spam the game with /follow
+        local af = mm:GetAutoFollow()
+        if af:GetIsAutoRunning() ~= 0 and af:GetFollowTargetIndex() == idx then return end
+        run_command('/follow ' .. ent:GetName(idx))
+    end)
+    return true
+end
+
+-- Cast starts: turn Multisend follow and in-game auto-follow off.
+local function suspend_follow()
+    if follow_suspended or not (ms_enabled or gf_enabled) then return end
+    follow_suspended = true
+    if ms_enabled then
+        ms_suspended = true
+        if ms_off_cmd ~= '' then run_command(ms_off_cmd) end
+    end
+    if gf_enabled then game_follow_stop() end
+end
+
+-- Cast over (after any unlock wait): turn them back on.
 local function resume_follow()
     if not follow_suspended then return end
     follow_suspended = false
-    if ms_on_cmd ~= '' then run_command(ms_on_cmd) end
+    if ms_suspended then
+        ms_suspended = false
+        if ms_on_cmd ~= '' then run_command(ms_on_cmd) end
+    end
+    if not (gf_enabled and game_follow_named()) then game_follow_resume() end
 end
 
 -- confirmed = true when the server's "you began casting" packet arrived
@@ -255,7 +338,6 @@ local function start_cast(confirmed)
         cast_started   = os.clock()
     end
     if not was_casting then
-        if sent_x then anchor = { sent_x, sent_y } end
         suspend_follow()
         release_held_keys()
     end
@@ -266,7 +348,6 @@ end
 local function stop_cast(reason, follow_delay)
     casting        = false
     cast_confirmed = false
-    anchor         = nil
     if follow_delay and follow_delay > 0 and follow_suspended then
         resume_at = os.clock() + follow_delay
     else
@@ -338,10 +419,11 @@ local function save_settings()
         ('badge_circle=%d'):format(S.badge_circle and 1 or 0),
         ('badge_text=%d'):format(S.badge_text and 1 or 0),
         ('inject=%d'):format(inject and 1 or 0),
-        ('pin_pos=%d'):format(pin_pos and 1 or 0),
         ('lock_pos=%d'):format(lock_pos and 1 or 0),
         ('cfg_btn=%d'):format(show_cfg_btn and 1 or 0),
+        ('move_btn=%d'):format(show_move_btn and 1 or 0),
         ('low_profile=%d'):format(low_profile and 1 or 0),
+        ('letter_badge=%d'):format(letter_badge and 1 or 0),
         ('layout=%d'):format(layout_mode),
         ('bg_style=%d'):format(S.bg_style),
         'menu_top=' .. f4(S.menu_top),
@@ -367,6 +449,9 @@ local function save_settings()
         ('show_ui=%d'):format(show_ui and 1 or 0),
     }
     lines[#lines + 1] = ('ms_enabled=%d'):format(ms_enabled and 1 or 0)
+    lines[#lines + 1] = ('ms_quiet=%d'):format(ms_quiet and 1 or 0)
+    lines[#lines + 1] = ('game_follow=%d'):format(gf_enabled and 1 or 0)
+    lines[#lines + 1] = 'game_follow_name=>' .. gf_name
     lines[#lines + 1] = 'ms_offcmd=>' .. ms_off_cmd      -- leading '>' keeps blank commands
     lines[#lines + 1] = 'ms_oncmd=>'  .. ms_on_cmd
     local blob = table.concat(lines, '\n') .. '\n'
@@ -382,6 +467,9 @@ local function apply_settings(data)
             goto continue
         elseif k == 'ms_oncmd' then
             ms_on_cmd = (v:gsub('^>', ''))
+            goto continue
+        elseif k == 'game_follow_name' then
+            gf_name = (v:gsub('^>', ''))
             goto continue
         end
         for num in v:gmatch('[%-%d%.]+') do n[#n + 1] = tonumber(num) end
@@ -414,11 +502,14 @@ local function apply_settings(data)
             elseif k == 'badge_circle' then S.badge_circle = (x ~= 0)
             elseif k == 'badge_text'  then S.badge_text  = (x ~= 0)
             elseif k == 'ms_enabled'  then ms_enabled    = (x ~= 0)
+            elseif k == 'ms_quiet'    then ms_quiet      = (x ~= 0)
+            elseif k == 'game_follow' then gf_enabled    = (x ~= 0)
             elseif k == 'inject'      then inject        = (x ~= 0)
-            elseif k == 'pin_pos'     then pin_pos       = (x ~= 0)
             elseif k == 'lock_pos'    then lock_pos      = (x ~= 0)
             elseif k == 'cfg_btn'     then show_cfg_btn  = (x ~= 0)
+            elseif k == 'move_btn'    then show_move_btn = (x ~= 0)
             elseif k == 'low_profile' then low_profile   = (x ~= 0); refit = true
+            elseif k == 'letter_badge' then letter_badge = (x ~= 0); refit = true
             elseif k == 'layout'      then layout_mode   = (x == 1) and 1 or 0
             elseif k == 'bg_style'    then S.bg_style    = (x == 1) and 1 or 0
             elseif k == 'menu_top'    then col(S.menu_top)
@@ -497,7 +588,7 @@ local function load_char()
     local t = {}
     for k, v in data:gmatch('(%w+)=([%-%d%.]+)') do t[k] = tonumber(v) end
     if t.x and t.y then char_pos = { t.x, t.y } end
-    if t.scale then last_scale = clamp(t.scale, 0.5, 4.0); refit = true end
+    if t.scale then last_scale = clamp(t.scale, 0.3, 4.0); refit = true end
     if t.enabled ~= nil then enabled = (t.enabled ~= 0); write_heartbeat() end
     char_saved = { x = t.x, y = t.y, scale = t.scale, en = enabled }
 end
@@ -515,9 +606,21 @@ end
 local function set_remote(name, value)
     if not sync_dir then return end
     cmd_counter = cmd_counter + 1
+    -- value: true = ON, false = OFF, 'release' = Allow Move (end its cast lock)
+    local st = (value == 'release') and 2 or (value and 1 or 0)
     write_file(sync_dir .. 'cmd_' .. name .. '.txt',
-        ('%d|%d.%d|%s'):format(value and 1 or 0, os.time(), cmd_counter, my_name() or '?'))
-    if other_clients[name] then other_clients[name].enabled = value end  -- optimistic UI
+        ('%d|%d.%d|%s'):format(st, os.time(), cmd_counter, my_name() or '?'))
+    if st ~= 2 and other_clients[name] then other_clients[name].enabled = value end  -- optimistic UI
+end
+
+-- Allow Move: end the cast lock on this client and on any other client that is locked.
+local function allow_move()
+    local was = casting
+    stop_cast('manual release')
+    if was then repress_held_keys() end
+    for name, info in pairs(other_clients) do
+        if info.locked then set_remote(name, 'release') end
+    end
 end
 
 local function scan_clients(now)
@@ -584,7 +687,11 @@ local function sync_tick()
             elseif data ~= last_cmd then
                 last_cmd = data
                 local st = data:match('^(%d)|')
-                if st then
+                if st == '2' then
+                    local was = casting
+                    stop_cast('manual release')
+                    if was then repress_held_keys() end
+                elseif st then
                     set_enabled(st == '1')
                 end
             end
@@ -612,11 +719,25 @@ ashita.events.register('command', 'stopmove_command', function(e)
         set_enabled(true)
     elseif sub == 'off' then
         set_enabled(false)
+    elseif sub == 'move' then
+        allow_move()
     elseif sub == 'resetbox' then
         last_scale = 1.0
         char_pos   = { 20, 200 }
         refit      = true
         save_char(20, 200)
+    end
+end)
+
+----------------------------------------------------------------------
+-- Hide Multisend's "Multisend: Follow is currently enabled/disabled." line,
+-- but only for a few seconds after stopmove itself sent a command.
+----------------------------------------------------------------------
+ashita.events.register('text_in', 'stopmove_text_in', function(e)
+    if not ms_quiet or os.clock() > quiet_until then return end
+    local msg = e.message_modified or e.message or ''
+    if msg:find('Multisend: Follow is currently', 1, true) then
+        e.blocked = true
     end
 end)
 
@@ -701,21 +822,6 @@ end
 -- macro, independent of how the incoming action packet is parsed.
 ----------------------------------------------------------------------
 ashita.events.register('packet_out', 'stopmove_packet_out', function(e)
-    -- 0x0015 position update: x at 0x04, height at 0x08, y at 0x0C
-    if e.id == 0x0015 then
-        local p = ffi.cast('float*', ffi.cast('uint8_t*', e.data_modified_raw) + 4)
-        if casting and anchor and enabled and pin_pos then
-            local dx, dy = p[0] - anchor[1], p[2] - anchor[2]
-            if (dx * dx + dy * dy) <= PIN_MAX * PIN_MAX then
-                p[0], p[2] = anchor[1], anchor[2]
-            else
-                anchor = nil       -- you really walked off; stop pinning
-            end
-        end
-        sent_x, sent_y = p[0], p[2]
-        return
-    end
-
     if e.id ~= 0x001A then
         return
     end
@@ -940,11 +1046,21 @@ local function draw_config()
             if imgui.Checkbox('Low profile widget', lp) then low_profile = lp[1]; refit = true; changed = true end
             imgui.SameLine()
             imgui.TextDisabled('first letter of each name + ON/OFF only')
+            if low_profile then
+                local lb = { letter_badge }
+                if imgui.Checkbox('  Letter inside the shape (smallest)', lb) then letter_badge = lb[1]; refit = true; changed = true end
+                imgui.TextDisabled('    One small square/circle per character: the colour shows ON/OFF/LOCK.')
+                imgui.TextDisabled('    UI and Allow Move become tiny U and M buttons beside them.')
+            end
             local c4 = { show_cfg_btn }
             if imgui.Checkbox('UI button', c4) then show_cfg_btn = c4[1]; changed = true end
             imgui.SameLine()
             imgui.TextDisabled('puts a UI button on the widget')
-            if imgui.Button('Release now') then stop_cast('manual release') end
+            local c5 = { show_move_btn }
+            if imgui.Checkbox('Allow Move button', c5) then show_move_btn = c5[1]; refit = true; changed = true end
+            imgui.SameLine()
+            imgui.TextDisabled('puts an Allow Move button on the widget')
+            if imgui.Button('Allow Move') then allow_move() end
             imgui.SameLine()
             imgui.TextDisabled('releases the stop-cast lock and allows movement when pushed')
         end
@@ -963,17 +1079,15 @@ local function draw_config()
             if imgui.Checkbox('Release held movement keys at cast start', k2) then
                 inject = k2[1]; changed = true
             end
-            local k3 = { pin_pos }
-            if imgui.Checkbox('Hold position while casting', k3) then
-                pin_pos = k3[1]; changed = true
-            end
-            imgui.TextDisabled('  Tiny slips (under 1 yalm) are not sent to the server, so they cannot interrupt the cast.')
             imgui.Separator()
 
             local m = { ms_enabled }
             if imgui.Checkbox('Multisend follow', m) then
                 ms_enabled = m[1]
-                if not ms_enabled and follow_suspended then resume_follow() end
+                if not ms_enabled and ms_suspended then
+                    ms_suspended = false
+                    if ms_on_cmd ~= '' then run_command(ms_on_cmd) end
+                end
                 changed = true
             end
             if ms_enabled then
@@ -982,6 +1096,26 @@ local function draw_config()
                 local on = text_box('Cast ends##ms_on', ms_on_cmd)
                 if on ~= nil then ms_on_cmd = on; changed = true end
                 imgui.TextDisabled('  Blank command = send nothing. Commands start with / (e.g. /ms follow off).')
+                local q = { ms_quiet }
+                if imgui.Checkbox('Hide Multisend follow messages in the chat log', q) then
+                    ms_quiet = q[1]; changed = true
+                end
+                imgui.TextDisabled('  Only the replies to these commands are hidden; /ms follow typed by you still shows.')
+            end
+            imgui.Separator()
+
+            local g = { gf_enabled }
+            if imgui.Checkbox('In-game auto-follow (/follow)', g) then
+                gf_enabled = g[1]
+                if not gf_enabled then gf_saved = nil end
+                changed = true
+            end
+            imgui.TextDisabled('  Stops /follow when a cast starts and follows the same target again when it ends.')
+            if gf_enabled then
+                local nm = text_box('Follow after cast##gf_name', gf_name)
+                if nm ~= nil then gf_name = nm; changed = true end
+                imgui.TextDisabled('  Character name: after every cast, auto-follow is turned on and set to them.')
+                imgui.TextDisabled('  Blank = re-follow whoever you were following. The named character never follows itself.')
             end
         end
 
@@ -1046,6 +1180,11 @@ local function draw_config()
             choice('270##rot3',   rot == 3, function() rot = 3 end)
             imgui.TextDisabled('  Rotation rearranges the box; the text itself stays upright.')
 
+            local ws = { last_scale }
+            if slider('Widget size', ws, 0.3, 4.0, '%.2f') then
+                last_scale = clamp(ws[1], 0.3, 4.0); refit = true
+            end
+            imgui.TextDisabled('  Or roll the mouse wheel over the widget.')
             if imgui.Button('Fit box to content') then refit = true end
         end
 
@@ -1196,12 +1335,22 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
     -- corner). Content scales with the window width.
     local flags = bit.bor(
         ImGuiWindowFlags_NoTitleBar,
-        ImGuiWindowFlags_NoScrollbar)
+        ImGuiWindowFlags_NoScrollbar,
+        ImGuiWindowFlags_NoNav or 0)     -- never take keyboard input away from the game
     if lock_pos then
         flags = bit.bor(flags, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoResize)
     end
+    -- letter-in-shape: no corner triangle (it would cover the tiny badges).
+    -- Size it with the mouse wheel over the box, or Settings > Layout > Widget size.
+    if low_profile and letter_badge then
+        flags = bit.bor(flags, ImGuiWindowFlags_NoResize)
+    end
 
     load_char()
+
+    -- letter-in-shape: one small badge per character, letter inside, tight spacing
+    local compact = low_profile and letter_badge
+    PAD = compact and 2 or 6
 
     ------------------------------------------------------------------
     -- Work out what to show: this client first, then any other client(s)
@@ -1247,7 +1396,11 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
 
     local name_h1, state_h1
     local lbl_w1 = {}
-    local labels = { 'ON', 'OFF', 'LOCK', '--' }
+    local labels = { 'ON', 'OFF', 'LOCK', '--', 'U', 'M' }
+    for _, e in ipairs(entries) do labels[#labels + 1] = e.name end
+
+    local locked_any = casting and enabled
+    for _, info in pairs(other_clients) do if info.locked then locked_any = true end end
 
     for _, e in ipairs(entries) do e.nw1 = tw1(e.name) * S.name.size end
     name_h1  = base_lh * S.name.size
@@ -1264,6 +1417,12 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
         local N = #entries
         local R, C
         if layout_mode == 0 then R, C = N, 2 else R, C = 1, 2 * N end
+        if compact then
+            -- badges (plus the U / M buttons) in a single column or row
+            if show_cfg_btn then N = N + 1 end
+            if show_move_btn then N = N + 1 end
+            if layout_mode == 0 then R, C = N, 1 else R, C = 1, N end
+        end
 
         local nh = name_h1  * sc
         local bh = state_h1 * sc
@@ -1274,9 +1433,24 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
             local d  = (math.sqrt(lw * lw + state_h1 * state_h1) + 2) * sc
             bw, bh = d, d
         end
+        if compact then
+            local d = state_h1 * 1.35 * sc
+            bw, bh = d, d
+        end
 
         local cells = {}
-        for i, e in ipairs(entries) do
+        if compact then
+            local kinds = {}
+            for i = 1, #entries do kinds[#kinds + 1] = 'b' end
+            if show_cfg_btn then kinds[#kinds + 1] = 'u' end
+            if show_move_btn then kinds[#kinds + 1] = 'm' end
+            for i, k in ipairs(kinds) do
+                local r, c = i - 1, 0
+                if layout_mode == 1 then r, c = 0, i - 1 end
+                cells[#cells + 1] = { e = i, kind = k, r = r, c = c, w = bw, h = bh }
+            end
+        end
+        for i, e in ipairs(compact and {} or entries) do
             local nr, nc, br, bc
             if layout_mode == 0 then
                 nr, nc, br, bc = i - 1, 0, i - 1, 1
@@ -1320,7 +1494,7 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
                 local a, b = at[r .. ',' .. c], at[r .. ',' .. (c + 1)]
                 if a and b and a.e == b.e then same = true break end
             end
-            hg[c] = (same and 4 or 14) * sc
+            hg[c] = (same and 4 or (compact and 3 or 14)) * sc
             total_w = total_w + hg[c]
         end
         for r = 0, RR - 2 do
@@ -1329,7 +1503,7 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
                 local a, b = at[r .. ',' .. c], at[(r + 1) .. ',' .. c]
                 if a and b and a.e == b.e then same = true break end
             end
-            vg[r] = (same and 2 or 5) * sc
+            vg[r] = (same and 2 or (compact and 3 or 5)) * sc
             total_h = total_h + vg[r]
         end
 
@@ -1339,15 +1513,20 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
 
     -- size of everything at scale 1 (used to derive the scale from the window width)
     local g1       = build_grid(1.0)
-    local cfg_w1   = show_cfg_btn and (base_lh * 0.8 * 2.6) or 0
-    local cfg_h1   = show_cfg_btn and (base_lh * 0.8 + 4) or 0
-    local nat_w    = math.max(g1.content_w, cfg_w1, 1)
+    local btn_lh1  = base_lh * 0.8
+    local cfg_w1   = show_cfg_btn and (btn_lh1 * 2.6) or 0
+    local mv_w1    = show_move_btn and (tw1('Allow Move') * 0.8 + btn_lh1) or 0
+    local row_w1   = cfg_w1 + mv_w1 + ((show_cfg_btn and show_move_btn) and 4 or 0)
+    local cfg_h1   = (show_cfg_btn or show_move_btn) and (btn_lh1 + 4) or 0
+    if compact then row_w1, cfg_h1 = 0, 0 end      -- the buttons are grid cells instead
+    local nat_w    = math.max(g1.content_w, row_w1, 1)
     local nat_h    = g1.content_h + cfg_h1
 
     -- re-fit the box when the layout / rotation / number of clients changes
-    local sig = ('%d|%d|%d'):format(layout_mode, rot, #entries)
+    local sig = ('%d|%d|%d|%d'):format(layout_mode, rot, #entries,
+        (show_cfg_btn and 1 or 0) + (show_move_btn and 2 or 0) + (compact and 4 or 0))
     if sig ~= last_sig then last_sig = sig; refit = true end
-    if refit then
+    if refit or compact then
         refit = false
         imgui.SetNextWindowSize({ nat_w * last_scale + 2 * PAD, nat_h * last_scale + 2 * PAD }, ImGuiCond_Always)
     else
@@ -1363,7 +1542,7 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
     imgui.PushStyleColor(ImGuiCol_ResizeGrip,        { 0.85, 0.85, 0.85, 0.60 })
     imgui.PushStyleColor(ImGuiCol_ResizeGripHovered, { 1.00, 1.00, 1.00, 0.90 })
     imgui.PushStyleColor(ImGuiCol_ResizeGripActive,  { 1.00, 1.00, 1.00, 1.00 })
-    pcall(function() imgui.SetNextWindowSizeConstraints({ 50, 24 }, { 1400, 900 }) end)
+    pcall(function() imgui.SetNextWindowSizeConstraints({ 12, 12 }, { 1400, 900 }) end)
     if char_pos then
         imgui.SetNextWindowPos({ char_pos[1], char_pos[2] }, ImGuiCond_Always)
         char_pos = nil
@@ -1374,7 +1553,7 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
     if imgui.Begin('stopmove_ui', true, flags) then
         local w     = imgui.GetWindowWidth()
         local h     = imgui.GetWindowHeight()
-        local scale = math.max(0.5, math.min(4.0, (w - 2 * PAD) / nat_w))
+        local scale = math.max(compact and 0.3 or 0.5, math.min(4.0, (w - 2 * PAD) / nat_w))
         last_scale  = scale
 
         -- window position on screen (GDI objects are placed in screen coordinates)
@@ -1463,7 +1642,30 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
                 if g.mixed[cell.c] then cx = cx + (g.colw[cell.c] - cell.w) / 2 end   -- centre in shared columns
                 cy = cy + (g.rowh[cell.r] - cell.h) / 2
 
-                if cell.kind == 'n' then
+                if cell.kind == 'u' or cell.kind == 'm' then
+                    -- tiny U (settings) / M (Allow Move) buttons in letter-in-shape mode
+                    local is_m = (cell.kind == 'm')
+                    local col = (is_m and locked_any) and S.lock_col or { 0.25, 0.25, 0.32, 1.0 }
+                    set_scale(S.state.size)
+                    imgui.SetCursorPosX(cx)
+                    imgui.SetCursorPosY(cy)
+                    imgui.PushStyleColor(ImGuiCol_Button, fade(col))
+                    imgui.PushStyleColor(ImGuiCol_ButtonHovered, fade({ col[1] + 0.1, col[2] + 0.1, col[3] + 0.1, 1.0 }))
+                    imgui.PushStyleColor(ImGuiCol_ButtonActive, fade({ col[1] + 0.2, col[2] + 0.2, col[3] + 0.2, 1.0 }))
+                    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 0, 0 })
+                    local clicked = imgui.Button('##sm_' .. cell.kind, { cell.w, cell.h })
+                    imgui.PopStyleVar(1)
+                    imgui.PopStyleColor(3)
+                    pcall(function()
+                        if imgui.IsItemHovered() then imgui.SetTooltip(is_m and 'Allow Move' or 'StopMove settings') end
+                    end)
+                    local lbl = is_m and 'M' or 'U'
+                    draw_text(lbl, S.state, cx + (cell.w - lbl_w1[lbl] * scale) / 2, cy + (cell.h - state_h1 * scale) / 2)
+                    if clicked then
+                        if is_m then allow_move() else cfg_open[1] = not cfg_open[1] end
+                        pcall(function() imgui.SetWindowFocus() end)
+                    end
+                elseif cell.kind == 'n' then
                     set_scale(S.name.size)
                     draw_text(e.name, S.name, cx, cy, (S.lock_name_tint and e.locked and e.on) and { 0.95, 0.60, 0.15, 1 } or nil)
                 else
@@ -1477,6 +1679,7 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
                     else
                         color, label = S.on_col, 'ON'
                     end
+                    if compact then label = e.name end      -- the letter goes inside the shape
                     local tw = (lbl_w1[label] or tw1(label)) * scale
                     local clicked
 
@@ -1505,7 +1708,7 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
                         imgui.PopStyleColor(3)
                     end
                     -- label centred on the badge (square or circle)
-                    if S.badge_text then
+                    if S.badge_text or compact then
                         draw_text(label, S.state, cx + (cell.w - tw) / 2, cy + (cell.h - state_h1 * scale) / 2)
                     end
 
@@ -1516,21 +1719,38 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
 
         draw_cells()
 
-        -- small "UI" button that opens the settings window
+        -- small "UI" button that opens the settings window, and "Allow Move"
+        -- (ends the cast lock now; drawn in the LOCK colour while locked)
         local end_y = PAD + y
-        if show_cfg_btn then
+        if (show_cfg_btn or show_move_btn) and not compact then
             set_scale(0.8)
             local lh = base_lh * 0.8 * scale
-            imgui.SetCursorPosX(PAD)
-            imgui.SetCursorPosY(PAD + y + 4 * scale)
-            imgui.PushStyleColor(ImGuiCol_Button, { 0.25, 0.25, 0.32, 0.85 * ui_alpha })
-            imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.35, 0.35, 0.45, 0.95 * ui_alpha })
-            imgui.PushStyleColor(ImGuiCol_ButtonActive,  { 0.45, 0.45, 0.55, 1.00 * ui_alpha })
-            imgui.PushStyleColor(ImGuiCol_Text, fade({ 1, 1, 1, 1 }))
-            imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 2, 0 })
-            if imgui.Button('UI##open', { lh * 2.6, lh }) then cfg_open[1] = not cfg_open[1] end
-            imgui.PopStyleVar(1)
-            imgui.PopStyleColor(4)
+            local bx = PAD
+            local function small_button(label, w, col)
+                imgui.SetCursorPosX(bx)
+                imgui.SetCursorPosY(PAD + y + 4 * scale)
+                imgui.PushStyleColor(ImGuiCol_Button, { col[1], col[2], col[3], 0.85 * ui_alpha })
+                imgui.PushStyleColor(ImGuiCol_ButtonHovered, { col[1] + 0.1, col[2] + 0.1, col[3] + 0.1, 0.95 * ui_alpha })
+                imgui.PushStyleColor(ImGuiCol_ButtonActive,  { col[1] + 0.2, col[2] + 0.2, col[3] + 0.2, 1.00 * ui_alpha })
+                imgui.PushStyleColor(ImGuiCol_Text, fade({ 1, 1, 1, 1 }))
+                imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 2, 0 })
+                local clicked = imgui.Button(label, { w, lh })
+                imgui.PopStyleVar(1)
+                imgui.PopStyleColor(4)
+                bx = bx + w + 4 * scale
+                return clicked
+            end
+            if show_cfg_btn and small_button('UI##open', lh * 2.6, { 0.25, 0.25, 0.32 }) then
+                cfg_open[1] = not cfg_open[1]
+            end
+            if show_move_btn then
+                local col = (casting and enabled) and S.lock_col or { 0.25, 0.25, 0.32 }
+                col = locked_any and S.lock_col or col
+                if small_button('Allow Move##release', mv_w1 * scale, col) then
+                    allow_move()
+                    pcall(function() imgui.SetWindowFocus() end)   -- hand the keyboard back to the game
+                end
+            end
             end_y = PAD + y + 4 * scale + lh
         end
 
@@ -1538,6 +1758,17 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
         imgui.SetCursorPosX(PAD)
         imgui.SetCursorPosY(end_y)
         imgui.Dummy({ 1, 1 })
+
+        -- mouse wheel over the box = bigger / smaller (not while the box is locked)
+        if not lock_pos then
+            pcall(function()
+                local wheel = imgui.GetIO().MouseWheel
+                if wheel ~= 0 and imgui.IsWindowHovered() then
+                    last_scale = clamp(last_scale * (1 + 0.1 * wheel), compact and 0.3 or 0.5, 4.0)
+                    refit = true
+                end
+            end)
+        end
 
         -- right-click anywhere on the box to open the settings window
         pcall(function()

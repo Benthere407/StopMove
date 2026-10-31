@@ -20,7 +20,7 @@
 
 addon.name    = 'stopmove'
 addon.author  = 'Claude'
-addon.version = '3.0'
+addon.version = '3.1'
 addon.desc    = 'Blocks numpad movement while casting (toggleable, multi-client aware).'
 addon.link    = ''
 
@@ -35,6 +35,7 @@ local enabled  = true   -- master toggle (starts ON when loaded)
 local block_keys = true   -- disable keyboard movement (numpad) while casting
 local block_wasd = false  -- ... and also W/A/S/D
 local lock_pos   = false  -- lock the on-screen box position and size
+local ui_scale   = 1.0    -- the settings window's scale (its header's < 100% > stepper)
 
 -- Multisend follow: turned off when a cast starts, back on after it ends.
 --   ms_off_cmd : chat command sent when the cast starts   (blank = send nothing)
@@ -602,6 +603,7 @@ local function save_settings()
         ('badge_text=%d'):format(S.badge_text and 1 or 0),
         ('inject=%d'):format(inject and 1 or 0),
         ('lock_pos=%d'):format(lock_pos and 1 or 0),
+        ('ui_scale=%.2f'):format(ui_scale),
         ('low_profile=%d'):format(low_profile and 1 or 0),
         ('letter_badge=%d'):format(letter_badge and 1 or 0),
         ('layout=%d'):format(layout_mode),
@@ -723,6 +725,7 @@ local function apply_settings(data, shared_only)
             elseif k == 'game_follow' then gf_enabled    = (x ~= 0)
             elseif k == 'inject'      then inject        = (x ~= 0)
             elseif k == 'lock_pos'    then lock_pos      = (x ~= 0)
+            elseif k == 'ui_scale'    then ui_scale      = clamp(x, 0.75, 1.5)
             elseif k == 'low_profile' then low_profile   = (x ~= 0); refit = true
             elseif k == 'letter_badge' then letter_badge = (x ~= 0); refit = true
             elseif k == 'layout'      then layout_mode   = (x == 1) and 1 or 0
@@ -843,7 +846,7 @@ end
 -- Copy this theme to the other client: its theme and that theme's own
 -- settings go in copy_<name>.txt, which that client picks up and deletes.
 ----------------------------------------------------------------------
-local NOT_COPIED = { show_ui = true, lock_pos = true, cfg_btn = true, move_btn = true }
+local NOT_COPIED = { show_ui = true, lock_pos = true, ui_scale = true, cfg_btn = true, move_btn = true }
 
 -- Push a whole configuration to the other client: a saved file (or, with no
 -- file, the settings in use now) goes in push_<name>.txt. That client saves
@@ -2020,6 +2023,27 @@ CFG.file_note     = nil       -- { text, until } after Save / Load
 CFG.search        = ''
 CFG.reset_confirm = 0         -- "Reset all" needs a second click within 3 seconds
 
+-- Vanacore's menus use Segoe UI. Under VanaCore (ImGui 1.92 can add fonts while running)
+-- it is loaded once and used from the next frame; anywhere else the default font stays.
+CFG.fonts = nil               -- nil: not tried yet; false: not available; else { reg, bold, ital, bi }
+CFG.fonts_next = nil
+function CFG.load_fonts()
+    CFG.fonts = false
+    if not rawget(_G, 'vana') then return end
+    local dir = (os.getenv('WINDIR') or 'C:\\Windows') .. '\\Fonts\\'
+    local function add(file)
+        local fh = io.open(dir .. file, 'rb')
+        if not fh then return nil end
+        fh:close()
+        local ok, f = pcall(imgui.AddFontFromFileTTF, dir .. file, 16)
+        if not (ok and f) then ok, f = pcall(function() return imgui.GetIO().Fonts:AddFontFromFileTTF(dir .. file, 16) end) end
+        return ok and f or nil
+    end
+    local reg = add('segoeui.ttf')
+    if not reg then return end
+    CFG.fonts_next = { reg = reg, bold = add('segoeuib.ttf') or reg, ital = add('segoeuii.ttf') or reg, bi = add('segoeuiz.ttf') or reg }
+end
+
 CFG.VC = {                    -- Vanacore's colours
     bg    = { 0.078, 0.094, 0.129, 0.98 },
     side  = { 0.063, 0.075, 0.102, 1.00 },
@@ -2086,7 +2110,7 @@ function CFG.reset_all()
     S = default_style()
     ui_alpha = 1.0
     enabled = true
-    show_ui, lock_pos = true, false
+    show_ui, lock_pos, ui_scale = true, false, 1.0
     low_profile, letter_badge, layout_mode, rot = false, false, 0, 0
     block_keys, block_wasd, inject, wait_for_stop = true, false, true, true
     ms_enabled, ms_quiet, ms_off_cmd, ms_on_cmd = true, true, '/ms follow off', '/ms follow on'
@@ -2103,6 +2127,18 @@ end
 local function draw_config()
     if not cfg_open[1] then return end
     local VC = CFG.VC
+    local SC = ui_scale
+    local function Z(n) return n * SC end
+    if CFG.fonts == nil then pcall(CFG.load_fonts)
+    elseif CFG.fonts_next then CFG.fonts, CFG.fonts_next = CFG.fonts_next, nil end
+    local FT = CFG.fonts or nil
+    -- runs fn with one of the Segoe UI faces (kind: reg, bold, ital, bi) at size px
+    local function in_font(kind, px, fn)
+        local on = FT and FT[kind] and pcall(imgui.PushFont, FT[kind], px or Z(16))
+        local ok, err = pcall(fn)
+        if on then pcall(imgui.PopFont) end
+        if not ok then error(err, 0) end
+    end
 
     local function v2(a, b) if type(a) == 'table' then return a[1], a[2] end return a or 0, b or 0 end
     local function avail_w() local ok, a, b = pcall(imgui.GetContentRegionAvail); if not ok then return 300 end return (v2(a, b)) end
@@ -2126,15 +2162,23 @@ local function draw_config()
     col(ImGuiCol_CheckMark, VC.acc);        col(ImGuiCol_ScrollbarBg, { 0, 0, 0, 0 })
     col(ImGuiCol_ResizeGrip, { 0.85, 0.85, 0.85, 0.30 })
     col(ImGuiCol_ResizeGripHovered, { 1, 1, 1, 0.70 }); col(ImGuiCol_ResizeGripActive, { 1, 1, 1, 0.90 })
-    var(ImGuiStyleVar_WindowRounding, 8);   var(ImGuiStyleVar_FrameRounding, 6)
-    var(ImGuiStyleVar_ItemSpacing, { 8, 6 })
+    var(ImGuiStyleVar_WindowRounding, Z(8)); var(ImGuiStyleVar_FrameRounding, Z(6))
+    var(ImGuiStyleVar_ItemSpacing, { Z(8), Z(6) })
+    var(ImGuiStyleVar_FramePadding, { Z(4), Z(3) })
 
-    imgui.SetNextWindowSize({ 640, 540 }, ImGuiCond_FirstUseEver)
-    pcall(function() imgui.SetNextWindowSizeConstraints({ 470, 300 }, { 1100, 1300 }) end)
+    imgui.SetNextWindowSize({ Z(640), Z(540) }, ImGuiCond_FirstUseEver)
+    if CFG.mini_set then imgui.SetNextWindowSize(CFG.mini_set, ImGuiCond_Always); CFG.mini_set = nil end
+    pcall(function() imgui.SetNextWindowSizeConstraints({ Z(470), Z(CFG.mini and 40 or 300) }, { Z(1100), Z(CFG.mini and 40 or 1300) }) end)
 
+    local font_on = FT and pcall(imgui.PushFont, FT.reg, Z(16))
     pcall(imgui.PushStyleVar, ImGuiStyleVar_WindowPadding, { 0, 0 })
-    local began = imgui.Begin('StopMove###sm_settings', cfg_open, ImGuiWindowFlags_NoCollapse or 0)
+    local wflags = bit.bor(ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoTitleBar or 0,
+                           CFG.mini and bit.bor(ImGuiWindowFlags_NoScrollbar or 0, ImGuiWindowFlags_NoResize or 0) or 0)
+    local began = imgui.Begin('StopMove###sm_settings', cfg_open, wflags)
     pcall(imgui.PopStyleVar, 1)
+    local win_w, win_h = v2(imgui.GetWindowSize())
+    local function text_scale() if not FT then pcall(imgui.SetWindowFontScale, SC) end end
+    text_scale()
     if began then
         local changed = false
         local searching = CFG.search ~= ''
@@ -2147,16 +2191,21 @@ local function draw_config()
         ------------------------------------------------------------------
         local function title(t, sub)
             if searching then return end
-            pcall(imgui.SetWindowFontScale, 1.35)
-            imgui.TextColored(VC.gold, t)
-            pcall(imgui.SetWindowFontScale, 1.0)
-            if sub then imgui.SameLine(); imgui.TextColored(VC.gold, sub) end
+            if FT then
+                in_font('bi', Z(21), function() imgui.TextColored(VC.text, t) end)
+            else
+                pcall(imgui.SetWindowFontScale, Z(1.35))
+                imgui.TextColored(VC.text, t)
+                pcall(imgui.SetWindowFontScale, SC)
+            end
+            if sub then imgui.SameLine(); pcall(imgui.AlignTextToFramePadding); imgui.TextColored(VC.dim, sub) end
+            imgui.Dummy({ 1, Z(2) })
         end
         -- section header: teal caps, a line to the right edge, and its own reset
         local function section(t, reset_fn)
             if searching then return end
-            imgui.Dummy({ 1, 4 })
-            imgui.TextColored(VC.teal, t)
+            imgui.Dummy({ 1, Z(4) })
+            in_font('ital', Z(15), function() imgui.TextColored(VC.teal, t) end)
             local tx1, ty1 = v2(imgui.GetItemRectMax())
             local tx0, ty0 = v2(imgui.GetItemRectMin())
             local wx = screen_pos() + avail_w()
@@ -2167,23 +2216,23 @@ local function draw_config()
             if reset_fn then
                 imgui.SameLine(imgui.GetCursorPosX() + avail_w() - 18)
                 local ix, iy = screen_pos()
-                if imgui.InvisibleButton('##rst_' .. t, { 16, 16 }) then reset_fn(); changed = true; refit = true end
+                if imgui.InvisibleButton('##rst_' .. t, { Z(16), Z(16) }) then reset_fn(); changed = true; refit = true end
                 local hov = imgui.IsItemHovered()
-                pcall(CFG.icon, imgui.GetWindowDrawList(), 'reset', ix + 1, iy + 8, 13, U(hov and VC.text or VC.mute))
+                pcall(CFG.icon, imgui.GetWindowDrawList(), 'reset', ix + 1, iy + Z(8), Z(13), U(hov and VC.text or VC.mute))
                 pcall(function() if hov then imgui.SetTooltip('Put this section back to its defaults') end end)
             end
         end
         local function note(t)
             if searching then return end
             local ix, iy = screen_pos()
-            pcall(CFG.icon, imgui.GetWindowDrawList(), 'info', ix + 1, iy + 8, 12, U(VC.mute))
-            pcall(imgui.Indent, 20)
+            pcall(CFG.icon, imgui.GetWindowDrawList(), 'info', ix + 1, iy + Z(8), Z(12), U(VC.mute))
+            pcall(imgui.Indent, Z(20))
             imgui.PushStyleColor(ImGuiCol_Text, VC.dim)
             pcall(imgui.PushTextWrapPos, 0)
             imgui.Text(t)
             pcall(imgui.PopTextWrapPos)
             imgui.PopStyleColor(1)
-            pcall(imgui.Unindent, 20)
+            pcall(imgui.Unindent, Z(20))
         end
         -- a row: the label on the left, its control right-aligned (cw = control width)
         local function label_row(label, cw)
@@ -2193,18 +2242,18 @@ local function draw_config()
             local star = label:find('%*$')
             if star then
                 imgui.Text(label:sub(1, star - 1))
-                imgui.SameLine(0, 2)
+                imgui.SameLine(0, Z(2))
                 imgui.TextColored(VC.gold, '*')
             else
                 imgui.Text(label)
             end
-            imgui.SameLine(x0 + math.max(160, aw - cw))
+            imgui.SameLine(x0 + math.max(Z(160), aw - cw))
         end
         local function switch(label, v)
             if not shown(label) then return nil end
-            label_row(label, 36)
+            label_row(label, Z(36))
             local x, y = screen_pos()
-            local w, h = 34, 18
+            local w, h = Z(34), Z(18)
             local clicked = imgui.InvisibleButton('##sw_' .. label, { w, h })
             pcall(function()
                 local dl = imgui.GetWindowDrawList()
@@ -2219,7 +2268,7 @@ local function draw_config()
             local tw_ = 0
             for _, op in ipairs(opts) do
                 local a = imgui.CalcTextSize(op[2])
-                tw_ = tw_ + (v2(a)) + 18
+                tw_ = tw_ + (v2(a)) + Z(18)
             end
             label_row(label, tw_ + 2)
             local picked = nil
@@ -2239,20 +2288,46 @@ local function draw_config()
             if picked ~= nil and picked ~= cur then changed = true; refit = true; return picked end
             return nil
         end
+        -- Vanacore's slider: a thin track (blue up to the knob), a round white knob, the value
+        -- to its right. Returns the new value while it is being dragged.
+        local function track(id, v, lo, hi, step, fmt)
+            local w, h, k = Z(150), Z(20), Z(7)
+            local x, y = screen_pos()
+            imgui.InvisibleButton('##tr_' .. id, { w, h })
+            local active, hot = imgui.IsItemActive(), imgui.IsItemHovered()
+            local nv = nil
+            if active and hi > lo then
+                local mx = v2(imgui.GetMousePos())
+                nv = lo + clamp((mx - x - k) / (w - 2 * k), 0, 1) * (hi - lo)
+                if step then nv = lo + math.floor((nv - lo) / step + 0.5) * step end
+                nv = tonumber(('%.4f'):format(clamp(nv, lo, hi)))
+                if math.abs(nv - v) < 1e-6 then nv = nil end
+            end
+            local cur = nv or v
+            local t = (hi > lo) and clamp((cur - lo) / (hi - lo), 0, 1) or 0
+            pcall(function()
+                local dl = imgui.GetWindowDrawList()
+                local cy, kx, th = y + h / 2, x + k + t * (w - 2 * k), Z(2)
+                dl:AddRectFilled({ x + 2, cy - th }, { x + w - 2, cy + th }, U(VC.off), th)
+                dl:AddRectFilled({ x + 2, cy - th }, { kx, cy + th }, U(VC.on), th)
+                dl:AddCircleFilled({ kx, cy }, Z((active or hot) and 7.5 or 6.5), U(VC.knob), 20)
+            end)
+            imgui.SameLine(0, Z(10))
+            pcall(imgui.AlignTextToFramePadding)
+            imgui.TextColored(VC.dim, (fmt or '%.2f'):format(cur))
+            return nv
+        end
         local function number(label, v, step, fmt, lo, hi)
             if not shown(label) then return nil end
-            label_row(label, 130)
-            pcall(imgui.PushItemWidth, 130)
-            local box = { v }
-            local ch = imgui.InputFloat('##num_' .. label, box, step, step * 2, fmt)
-            pcall(imgui.PopItemWidth)
-            if ch then changed = true; return clamp(box[1], lo, hi) end
-            return nil
+            label_row(label, Z(205))
+            local nv = track(label, v, lo, hi, step, fmt)
+            if nv then changed = true end
+            return nv
         end
         local function textbox(label, v)
             if not shown(label) then return nil end
-            label_row(label, 170)
-            pcall(imgui.PushItemWidth, 170)
+            label_row(label, Z(170))
+            pcall(imgui.PushItemWidth, Z(170))
             local buf = { v }
             local ok, res = pcall(imgui.InputText, '##txt_' .. label, buf, 128)
             pcall(imgui.PopItemWidth)
@@ -2262,23 +2337,20 @@ local function draw_config()
         local function button_row(label, btn)
             if not shown(label) then return false end
             local a = imgui.CalcTextSize(btn)
-            label_row(label, (v2(a)) + 16)
+            label_row(label, (v2(a)) + Z(16))
             return imgui.Button(btn .. '##btn_' .. label)
         end
         local function slider(label, v, lo, hi, fmt)
             if not shown(label) then return nil end
-            label_row(label, 200)
-            pcall(imgui.PushItemWidth, 200)
-            local a = { v }
-            local ch = imgui.SliderFloat('##sl_' .. label, a, lo, hi, fmt)
-            pcall(imgui.PopItemWidth)
-            if ch then changed = true; return clamp(a[1], lo, hi) end
-            return nil
+            label_row(label, Z(205))
+            local nv = track(label, v, lo, hi, nil, fmt)
+            if nv then changed = true end
+            return nv
         end
         local function colour(label, t)
             if not shown(label) then return end
-            label_row(label, 200)
-            pcall(imgui.PushItemWidth, 200)
+            label_row(label, Z(200))
+            pcall(imgui.PushItemWidth, Z(200))
             local c = { t[1], t[2], t[3], t[4] }
             if imgui.ColorEdit4('##col_' .. label, c) then
                 t[1], t[2], t[3], t[4] = c[1], c[2], c[3], c[4]
@@ -2374,7 +2446,7 @@ local function draw_config()
             section('COMMANDS')
             for _, c in ipairs({ { '/stopmove', 'open or close this window' }, { '/stopmove on | off', 'StopMove on or off for this character' },
                                  { '/stopmove move', 'Allow Move: end the cast lock now' }, { '/stopmove resetbox', 'put the widget back at the top left' } }) do
-                imgui.TextColored(VC.acc, c[1]); imgui.SameLine(190); imgui.TextColored(VC.dim, c[2])
+                imgui.TextColored(VC.acc, c[1]); imgui.SameLine(Z(190)); imgui.TextColored(VC.dim, c[2])
             end
             section('WIDGET')
             note('Right-click the widget to open this window. Shift + drag moves it (any drag works while this window is open). Roll the mouse wheel over it to resize it.')
@@ -2388,8 +2460,8 @@ local function draw_config()
             title('Save and load')
             section('SAVE')
             if not searching then
-                label_row('File name', 230)
-                pcall(imgui.PushItemWidth, 160)
+                label_row('File name', Z(230))
+                pcall(imgui.PushItemWidth, Z(160))
                 pcall(imgui.InputText, '##sm_fname', CFG.file_name, 48)
                 pcall(imgui.PopItemWidth)
                 imgui.SameLine()
@@ -2409,8 +2481,8 @@ local function draw_config()
                 local found = false
                 for _, n in ipairs(list) do if n == CFG.pick then found = true end end
                 if not found then CFG.pick = list[1] end
-                label_row('Configuration', 290)
-                pcall(imgui.PushItemWidth, 220)
+                label_row('Configuration', Z(290))
+                pcall(imgui.PushItemWidth, Z(220))
                 local ok, open = pcall(imgui.BeginCombo, '##sm_pick', CFG.pick)
                 if ok and open then
                     for _, n in ipairs(list) do
@@ -2618,8 +2690,8 @@ local function draw_config()
             if not classic then
                 note('This theme starts with no box behind it: raise Background opacity to add one.')
                 if shown('Name box colour') then
-                    label_row('Name box colour', 200)
-                    pcall(imgui.PushItemWidth, 200)
+                    label_row('Name box colour', Z(200))
+                    pcall(imgui.PushItemWidth, Z(200))
                     local c = { o.plate[1], o.plate[2], o.plate[3] }
                     if imgui.ColorEdit3('##col_namebox', c) then o.plate = { c[1], c[2], c[3] }; changed = true end
                     pcall(imgui.PopItemWidth)
@@ -2640,8 +2712,8 @@ local function draw_config()
             else
                 local function rgb(label, k)
                     if not shown(label) then return end
-                    label_row(label, 200)
-                    pcall(imgui.PushItemWidth, 200)
+                    label_row(label, Z(200))
+                    pcall(imgui.PushItemWidth, Z(200))
                     local c = { o[k][1], o[k][2], o[k][3] }
                     if imgui.ColorEdit3('##col_' .. label, c) then o[k] = { c[1], c[2], c[3] }; changed = true end
                     pcall(imgui.PopItemWidth)
@@ -2672,8 +2744,8 @@ local function draw_config()
             else
                 local function rgb(label, k)
                     if not shown(label) then return end
-                    label_row(label, 200)
-                    pcall(imgui.PushItemWidth, 200)
+                    label_row(label, Z(200))
+                    pcall(imgui.PushItemWidth, Z(200))
                     local c = { o[k][1], o[k][2], o[k][3] }
                     if imgui.ColorEdit3('##col_' .. label, c) then o[k] = { c[1], c[2], c[3] }; changed = true end
                     pcall(imgui.PopItemWidth)
@@ -2689,15 +2761,100 @@ local function draw_config()
         end
 
         ------------------------------------------------------------------
+        -- header bar (Vanacore's: a menu glyph and the section's name; - shrinks, x closes)
+        ------------------------------------------------------------------
+        local GROUP = { about = 'About', general = 'StopMove', casting = 'StopMove', follow = 'StopMove',
+                        timing = 'StopMove', widget = 'Widget', files = 'Tools' }
+        local HEAD_H = Z(40)
+        local function header(name)
+            local x, y = screen_pos()
+            local w = avail_w()
+            local dl = imgui.GetWindowDrawList()
+            pcall(function()
+                for i = -1, 1 do dl:AddLine({ x + Z(16), y + HEAD_H / 2 + i * Z(4) }, { x + Z(26), y + HEAD_H / 2 + i * Z(4) }, U(VC.dim), 1.5) end
+            end)
+            local cx, cy = imgui.GetCursorPosX(), imgui.GetCursorPosY()
+            in_font('bold', Z(17), function()
+                local th = select(2, v2(imgui.CalcTextSize(name)))
+                imgui.SetCursorPosY(cy + (HEAD_H - th) / 2)
+                imgui.SetCursorPosX(cx + Z(36))
+                imgui.TextColored(VC.text, name)
+            end)
+            -- - and x, right-aligned
+            local function glyph(bx, kind)
+                local g = Z(22)
+                imgui.SetCursorPosX(cx + bx - x); imgui.SetCursorPosY(cy + (HEAD_H - g) / 2)
+                local hit = imgui.InvisibleButton('##hb_' .. kind, { g, g })
+                local hov = imgui.IsItemHovered()
+                local mx, my, e = bx + g / 2, y + HEAD_H / 2, Z(4.5)
+                pcall(function()
+                    if hov then dl:AddRectFilled({ bx, my - g / 2 }, { bx + g, my + g / 2 }, U({ 1, 1, 1, 0.07 }), Z(4)) end
+                    local c = U(hov and VC.text or VC.dim)
+                    if kind == 'min' then
+                        dl:AddLine({ mx - e, my }, { mx + e, my }, c, 1.5)
+                    elseif kind == 'close' then
+                        dl:AddLine({ mx - e, my - e }, { mx + e, my + e }, c, 1.5)
+                        dl:AddLine({ mx - e, my + e }, { mx + e, my - e }, c, 1.5)
+                    else                               -- < or >
+                        local sx = (kind == 'down') and 1 or -1
+                        dl:AddLine({ mx + sx * e * 0.5, my - e }, { mx - sx * e * 0.5, my }, c, 1.5)
+                        dl:AddLine({ mx - sx * e * 0.5, my }, { mx + sx * e * 0.5, my + e }, c, 1.5)
+                    end
+                end)
+                return hit
+            end
+            -- window scale, as Vanacore's: < 100% > in a rounded box, 75% to 150% in steps of 5%
+            local sw = Z(108)
+            local sx0 = x + w - Z(72) - sw
+            pcall(function()
+                dl:AddRect({ sx0, y + HEAD_H / 2 - Z(13) }, { sx0 + sw, y + HEAD_H / 2 + Z(13) }, U(VC.line), Z(6), 0, 1)
+            end)
+            local new = nil
+            if glyph(sx0 + Z(3), 'down') then new = ui_scale - 0.05 end
+            pcall(function() if imgui.IsItemHovered() then imgui.SetTooltip('Smaller') end end)
+            if glyph(sx0 + sw - Z(25), 'up') then new = ui_scale + 0.05 end
+            pcall(function() if imgui.IsItemHovered() then imgui.SetTooltip('Bigger') end end)
+            pcall(function()
+                local txt = ('%d%%'):format(math.floor(ui_scale * 100 + 0.5))
+                local tw, th = v2(imgui.CalcTextSize(txt))
+                dl:AddText({ sx0 + (sw - tw) / 2, y + (HEAD_H - th) / 2 }, U(VC.text), txt)
+            end)
+            if new then
+                new = clamp(math.floor(new * 20 + 0.5) / 20, 0.75, 1.5)
+                if new ~= ui_scale then
+                    local f = new / ui_scale
+                    ui_scale = new
+                    changed = true
+                    if CFG.mini then CFG.mini = { CFG.mini[1] * f, CFG.mini[2] * f }; CFG.mini_set = { win_w * f, Z(40) * f }
+                    else CFG.mini_set = { win_w * f, win_h * f } end     -- the window grows or shrinks with it
+                end
+            end
+            if glyph(x + w - Z(60), 'min') then
+                if CFG.mini then CFG.mini_set, CFG.mini = CFG.mini, nil
+                else CFG.mini = { win_w, win_h }; CFG.mini_set = { win_w, Z(40) } end
+            end
+            pcall(function() if imgui.IsItemHovered() then imgui.SetTooltip(CFG.mini and 'Show the settings' or 'Shrink to this bar') end end)
+            if glyph(x + w - Z(32), 'close') then cfg_open[1] = false end
+            imgui.SetCursorPosX(cx); imgui.SetCursorPosY(cy + HEAD_H)
+        end
+
+        if CFG.mini then
+            header('StopMove')
+            if changed then save_settings() end
+            goto sm_end
+        end
+
+        ------------------------------------------------------------------
         -- sidebar
         ------------------------------------------------------------------
         -- the sidebar: its own darker panel, padded, a hairline on its right
         local PADF = ImGuiWindowFlags_AlwaysUseWindowPadding or 0
         imgui.PushStyleColor(ImGuiCol_ChildBg, VC.side)
-        local side_w = (v2(imgui.CalcTextSize('Save and load'))) + 76
-        pcall(imgui.PushStyleVar, ImGuiStyleVar_WindowPadding, { 12, 12 })
+        local side_w = (v2(imgui.CalcTextSize('Save and load'))) * (FT and 1 or SC) + Z(76)
+        pcall(imgui.PushStyleVar, ImGuiStyleVar_WindowPadding, { Z(12), Z(12) })
         local side_open = imgui.BeginChild('##sm_side', { side_w, 0 }, false, PADF)
         pcall(imgui.PopStyleVar, 1)
+        text_scale()
         if side_open then
             local base = imgui.GetCursorPosX()
             -- the search box, framed
@@ -2710,26 +2867,26 @@ local function draw_config()
             pcall(imgui.PopItemWidth)
             pcall(function()
                 local x1, y1 = v2(imgui.GetItemRectMax())
-                imgui.GetWindowDrawList():AddRect({ sx, sy }, { x1, y1 }, U(VC.line), 6, 0, 1)
+                imgui.GetWindowDrawList():AddRect({ sx, sy }, { x1, y1 }, U(VC.line), Z(6), 0, 1)
             end)
-            imgui.Dummy({ 1, 6 })
+            imgui.Dummy({ 1, Z(6) })
             -- a top-level row: a line icon, then a white label (opens a page, or runs an action)
             local function head(icon, label, page)
                 local on = page and (CFG.page == page) and not searching
                 local ix, iy = screen_pos()
-                imgui.SetCursorPosX(base + 22)
+                imgui.SetCursorPosX(base + Z(22))
                 imgui.PushStyleColor(ImGuiCol_Text, on and VC.acc or VC.text)
                 local clicked = imgui.Selectable(label .. '##hd_' .. label, on)
                 imgui.PopStyleColor(1)
                 local _, y0 = v2(imgui.GetItemRectMin())
                 local _, y1 = v2(imgui.GetItemRectMax())
-                pcall(CFG.icon, imgui.GetWindowDrawList(), icon, ix, (y0 + y1) / 2, 13, U(on and VC.acc or VC.dim))
+                pcall(CFG.icon, imgui.GetWindowDrawList(), icon, ix, (y0 + y1) / 2, Z(13), U(on and VC.acc or VC.dim))
                 if clicked and page then CFG.page = page; CFG.search = '' end
                 return clicked
             end
             local function item(page, label)
                 local on = (CFG.page == page) and not searching
-                imgui.SetCursorPosX(base + 34)
+                imgui.SetCursorPosX(base + Z(34))
                 imgui.PushStyleColor(ImGuiCol_Text, on and VC.acc or VC.dim)
                 if imgui.Selectable(label .. '##nav_' .. page, on) then CFG.page = page; CFG.search = '' end
                 imgui.PopStyleColor(1)
@@ -2737,20 +2894,23 @@ local function draw_config()
                     local x0, y0 = v2(imgui.GetItemRectMin())
                     local _, y1 = v2(imgui.GetItemRectMax())
                     local dl = imgui.GetWindowDrawList()
-                    dl:AddLine({ x0 - 10, y0 }, { x0 - 10, y1 + 2 }, U(VC.line), 1)
-                    if on then dl:AddRectFilled({ x0 - 11, y0 + 2 }, { x0 - 9, y1 - 1 }, U(VC.acc), 0) end
+                    dl:AddLine({ x0 - Z(10), y0 }, { x0 - Z(10), y1 + 2 }, U(VC.line), 1)
+                    if on then
+                        local wx = v2(imgui.GetWindowPos())
+                        dl:AddRectFilled({ wx + 3, y0 + 1 }, { wx + 6, y1 }, U(VC.acc), 1)
+                    end
                 end)
             end
             head('about', 'About', 'about')
-            imgui.Dummy({ 1, 4 })
+            imgui.Dummy({ 1, Z(4) })
             head('stop', 'StopMove', 'general')
             item('general', 'General'); item('casting', 'Casting'); item('follow', 'Follow'); item('timing', 'Timing')
-            imgui.Dummy({ 1, 4 })
+            imgui.Dummy({ 1, Z(4) })
             head('widget', 'Widget', 'widget')
             item('widget', 'Appearance')
-            imgui.Dummy({ 1, 12 })
+            imgui.Dummy({ 1, Z(12) })
             imgui.TextColored(VC.mute, 'TOOLS')
-            imgui.Dummy({ 1, 2 })
+            imgui.Dummy({ 1, Z(2) })
             head('files', 'Save and load', 'files')
             if head('test', 'Test lock') then test_lock_until = os.clock() + 3 end
             pcall(function() if imgui.IsItemHovered() then imgui.SetTooltip('Show LOCK on your widget for 3 seconds (display only)') end end)
@@ -2768,16 +2928,29 @@ local function draw_config()
         -- the page (or, while searching, every matching setting)
         ------------------------------------------------------------------
         imgui.SameLine(0, 0)
-        pcall(imgui.PushStyleVar, ImGuiStyleVar_WindowPadding, { 18, 12 })
-        local page_open = imgui.BeginChild('##sm_page', { 0, 0 }, false, PADF)
+        pcall(imgui.PushStyleVar, ImGuiStyleVar_WindowPadding, { 0, 0 })
+        local right_open = imgui.BeginChild('##sm_right', { 0, 0 }, false, bit.bor(ImGuiWindowFlags_NoScrollbar or 0, ImGuiWindowFlags_NoScrollWithMouse or 0))
         pcall(imgui.PopStyleVar, 1)
-        if page_open then
-            if searching then
-                imgui.TextColored(VC.gold, 'Search: ' .. CFG.search)
-                for _, id in ipairs({ 'general', 'casting', 'follow', 'timing', 'widget' }) do PAGES[id]() end
-            else
-                (PAGES[CFG.page] or PAGES.general)()
+        text_scale()
+        if right_open then
+            header(searching and 'Search' or (GROUP[CFG.page] or 'StopMove'))
+            pcall(function()                       -- the hairline under the header
+                local hx, hy = screen_pos()
+                imgui.GetWindowDrawList():AddLine({ hx, hy - 1 }, { hx + avail_w(), hy - 1 }, U(VC.line), 1)
+            end)
+            pcall(imgui.PushStyleVar, ImGuiStyleVar_WindowPadding, { Z(18), Z(12) })
+            local page_open = imgui.BeginChild('##sm_page', { 0, 0 }, false, PADF)
+            pcall(imgui.PopStyleVar, 1)
+            text_scale()
+            if page_open then
+                if searching then
+                    imgui.TextColored(VC.gold, 'Search: ' .. CFG.search)
+                    for _, id in ipairs({ 'general', 'casting', 'follow', 'timing', 'widget' }) do PAGES[id]() end
+                else
+                    (PAGES[CFG.page] or PAGES.general)()
+                end
             end
+            imgui.EndChild()
         end
         imgui.EndChild()
 
@@ -2790,26 +2963,28 @@ local function draw_config()
         if not okp then okp, openp = pcall(imgui.BeginPopup, 'Reset all settings?##sm_reset') end   -- (no modal in this build)
         if okp and openp then
             imgui.TextColored(VC.gold, 'This will revert ALL settings to addon defaults.')
-            imgui.Dummy({ 1, 4 })
+            imgui.Dummy({ 1, Z(4) })
             imgui.TextColored(VC.dim, 'Themes, looks, casting, follow and timing settings all go back to how')
             imgui.TextColored(VC.dim, 'StopMove starts. Save a configuration first if you may want them back.')
-            imgui.Dummy({ 1, 6 })
+            imgui.Dummy({ 1, Z(6) })
             imgui.PushStyleColor(ImGuiCol_Button, { 0.55, 0.16, 0.18, 1 })
             imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.68, 0.20, 0.22, 1 })
-            if imgui.Button('Reset all##sm_reset_yes', { 120, 0 }) then
+            if imgui.Button('Reset all##sm_reset_yes', { Z(120), 0 }) then
                 CFG.reset_all()
                 changed = true
                 imgui.CloseCurrentPopup()
             end
             imgui.PopStyleColor(2)
             imgui.SameLine()
-            if imgui.Button('Cancel##sm_reset_no', { 120, 0 }) then imgui.CloseCurrentPopup() end
+            if imgui.Button('Cancel##sm_reset_no', { Z(120), 0 }) then imgui.CloseCurrentPopup() end
             imgui.EndPopup()
         end
 
         if changed then save_settings() end
     end
+    ::sm_end::
     imgui.End()
+    if font_on then pcall(imgui.PopFont) end
     if nvar > 0 then imgui.PopStyleVar(nvar) end
     if ncol > 0 then imgui.PopStyleColor(ncol) end
 end

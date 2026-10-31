@@ -14,9 +14,9 @@ An Ashita v4 addon for FFXI. While you cast a spell it blocks your numpad moveme
 - **Long and interrupted casts.** Long spells such as Stoneskin, Raise and Teleports stay locked for their whole cast time, and the widget blinks a red **INT** when a cast is interrupted.
 - **Widget.** A small on-screen widget shows ON / OFF / LOCK for each of your characters and works across two clients.
 - **Three themes.** Classic, plus **Vex** and **Hex link** modelled on the YunaUI party lists, each with its own settings, views and letter-only styles. Each character keeps its own look.
-- **Settings window** in the VanaCore menu style, with Search, saved setups, and push / copy to the other client.
+- **Settings window** in the VanaCore menu style, with Search, a window scale (75% to 150%), saved setups, and push / copy to the other client.
 
-Version: **3.0**. Tested on a current LandSandBoat (LSB) server running locally.
+Version: **3.1**. Tested on a current LandSandBoat (LSB) server running locally.
 
 - [User guide](docs/USER_GUIDE.md) (also as [StopMove_Guide.docx](StopMove_Guide.docx))
 - [Changelog](CHANGELOG.md)

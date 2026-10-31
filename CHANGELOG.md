@@ -1,5 +1,20 @@
 # StopMove changelog
 
+## 3.1
+
+3.1 brings the settings window closer to VanaCore's own menu, and adds a window scale.
+
+![The settings window in 3.1](docs/images/3.1/settings-general.png)
+
+### Added
+- **Window scale**: a **‹ 100% ›** control in the window's top bar, as in VanaCore's menu. It goes from 75% to 150% in steps of 5%. Everything in the window scales: text, sidebar, switches, sliders and spacing, and the window grows or shrinks to match. Each character keeps its own scale; Reset all puts it back to 100%.
+- **Top bar** in place of the plain title bar: a ☰ icon, the section's name (StopMove, Widget, Tools or About), then **–** and **×**. **–** shrinks the window to just that bar, and clicking it again brings it back. **×** closes the window. Drag the bar or any empty space to move the window.
+
+### Changed
+- **Font**: under VanaCore the window uses Segoe UI, as VanaCore's menu does, with page titles in bold italic white and section headings in italic teal. Elsewhere it keeps Ashita's default font.
+- **Sliders** are VanaCore-style: a thin track that fills blue up to a round white knob, with the value shown to its right. This includes the Timing values and Widget size, which used to be number boxes with − and + buttons. Each Timing value moves in fixed steps (0.05 s for Spell cast delay, 0.1 s for Max hold, 0.5 s for the lock settings).
+- **Sidebar**: the open page is marked with a cyan bar at the sidebar's left edge.
+
 ## 3.0
 
 3.0 adds two new widget themes modelled on YunaUI (Vex and Hex link), a redesigned settings window, saved configurations, and better handling of long and interrupted casts.

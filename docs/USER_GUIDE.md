@@ -1,6 +1,6 @@
 # StopMove user guide
 
-_Version 3.0  |  Ashita v4 addon  |  user guide_
+_Version 3.1  |  Ashita v4 addon  |  user guide_
 
 > **Download:** https://github.com/Benthere407/StopMove/releases/latest  
 > **Project page:** https://github.com/Benthere407/StopMove  
@@ -17,6 +17,12 @@ StopMove blocks your numpad movement keys (and, if you want, W/A/S/D) while you 
 <p align="center"><img src="images/3.0/hex-view-a.png" width="342" alt="The Hex link theme (view A), next to the YunaUI Hex party list it is modelled on."><br><em>The Hex link theme (view A), next to the YunaUI Hex party list it is modelled on.</em></p>
 
 <p align="center"><img src="images/3.0/classic-ffxi-menu.png" width="191" alt="The Classic theme, as in 2.0."><br><em>The Classic theme, as in 2.0.</em></p>
+
+### What's new in 3.1
+
+- **Window scale.** A **< 100% >** control in the settings window's top bar, as in VanaCore's menu, from 75% to 150%. Each character keeps its own.
+- **A top bar like VanaCore's**: the section's name, then **-** to shrink the window to the bar and **x** to close it.
+- **Closer to VanaCore's look**: Segoe UI text under VanaCore, and sliders with a thin track, a round knob and the value on the right (the Timing values and Widget size included).
 
 ### What's new in 3.0
 
@@ -168,6 +174,13 @@ Pick a theme on the **Widget > Appearance** page. Everything below the Theme row
 
 Open it with `/stopmove` or a right-click on the widget. Every change is saved automatically. Pick a page in the sidebar, or type in **Search** to see every matching setting at once. The small circular-arrow icon next to a section title resets just that section.
 
+- **Top bar**: the section's name, then the window scale, **-** and **x**. Drag the bar, or any empty space, to move the window.
+- **Window scale** (**< 100% >**): click the arrows to make everything in the window smaller or bigger, from 75% to 150% in steps of 5%. Each character keeps its own scale.
+- **-** shrinks the window to just the top bar; click it again to bring the window back. **x** closes it.
+- **Sliders**: drag the knob; the value is shown to its right. Timing values move in fixed steps (0.05 s, 0.1 s or 0.5 s).
+
+<p align="center"><img src="images/3.1/settings-general.png" width="820" alt="The settings window (3.1): the General page."><br><em>The settings window (3.1): the General page.</em></p>
+
 | Page | What is in it |
 |---|---|
 | About | What StopMove does, its commands, how to use the widget, and credits. |
@@ -260,7 +273,7 @@ To start fresh, use Reset all, or unload the addon and delete the settings folde
 ### Safety
 
 - One plain-text Lua file. No .exe or .dll. The zip is a normal zip, not self-extracting.
-- SHA-256 of stopmove.zip: 987f70fc9d6693b825ab4eb218eea59e1581bcc8e6b4feba44ed4e6428730996
+- SHA-256 of stopmove.zip: ad9b15ef788acaca9180fb9a667f0f9f82183ab7fdd69ad4a180c87c7ea4dd7f
 - No account details, tokens or logins are in the file. It does not use the network.
 - It does not cast, target, heal or fight for you. It is keyboard-only: gamepad and mouse movement are not blocked.
 - For transparency: with Wait until stopped on, it briefly holds your own cast request and re-sends it unchanged. It can send simulated key-release events at cast start, and a key-press after Allow Move, for movement keys you are physically holding. With In-game auto-follow on, it stops and restarts the game's auto-follow, or sends `/follow <name>`. It reads the spell's cast time from the game's own spell data. It does not change position packets. Each of these can be switched off in the settings window.
@@ -273,9 +286,10 @@ Report bugs or ask questions on the GitHub Issues page: https://github.com/Benth
 
 | Item | Details |
 |---|---|
-| File in the zip | stopmove/stopmove.lua (about 161 KB, 3,339 lines, plain text) |
-| SHA-256 stopmove.zip | 987f70fc9d6693b825ab4eb218eea59e1581bcc8e6b4feba44ed4e6428730996 |
-| SHA-256 stopmove.lua | 36bf5ef497317ae0aad8ea26d8c04d9789e256d0f398aa8d41cf46784d0f7311 |
+| File in the zip | stopmove/stopmove.lua (about 170 KB, 3,514 lines, plain text) |
+| SHA-256 stopmove.zip | ad9b15ef788acaca9180fb9a667f0f9f82183ab7fdd69ad4a180c87c7ea4dd7f |
+| SHA-256 stopmove.lua | dc2cf8ab938600772ac67ff006d6a84f730a9db944c444c02a654457fa78681d |
+| Changes in v3.1 | Settings window brought closer to VanaCore's menu: a window scale (75% to 150%, per character), a top bar with the section name, shrink and close, Segoe UI text under VanaCore, and VanaCore-style sliders (they replace the Timing and Widget size number boxes). |
 | Changes in v3.0 | Classic, Vex and Hex link themes, each with its own settings and Reset; new VanaCore-style settings window with Search; Save and load, Push and Copy to the other client; looks per character; red INT on interrupted casts; paralyzed and intimidated casts count as interrupted; the safety timer covers each spell's own cast time and Max cast lock defaults to 9 s; Shift + drag; widget UI and Allow Move buttons removed. |
 | Changes in v2.0 | In-game auto-follow option with a Follow after cast name box; "Release now" renamed Allow Move, added as `/stopmove move`, frees both clients and re-presses held movement keys; Letter inside the shape widget; mouse-wheel resizing and a Widget size slider; Hold position while casting removed, so position packets are never changed. |
 | Changes in v1.9 | Option to hide Multisend's "Follow is currently ..." messages caused by StopMove's own commands. |

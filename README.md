@@ -1,6 +1,6 @@
 # StopMove
 
-An Ashita v4 addon for FFXI. While you cast a spell it blocks your numpad movement keys (and, optionally, W/A/S/D) so you don't walk and interrupt the cast by accident.
+An Ashita v4 addon for FFXI. While you cast a spell it blocks your numpad movement keys (and, optionally, W/A/S/D and your controller) so you don't walk and interrupt the cast by accident.
 
 <p align="center">
   <img src="docs/images/3.0/vex-party-view-a.png" width="300" alt="StopMove widget, Vex theme">
@@ -12,11 +12,12 @@ An Ashita v4 addon for FFXI. While you cast a spell it blocks your numpad moveme
 - **Follow after cast.** You can type a character name, and after every cast your character follows them.
 - **Wait until stopped.** If you press a spell while still moving, the cast is held until your character has stopped.
 - **Long and interrupted casts.** Long spells such as Stoneskin, Raise and Teleports stay locked for their whole cast time, and the widget blinks a red **INT** when a cast is interrupted.
-- **Widget.** A small on-screen widget shows ON / OFF / LOCK for each of your characters and works across two clients.
-- **Three themes.** Classic, plus **Vex** and **Hex link** modelled on the YunaUI party lists, each with its own settings, views and letter-only styles. Each character keeps its own look.
+- **Controller.** Optionally blocks a controller's left stick, or the whole controller, while you cast.
+- **Widget.** A small on-screen widget shows ON / OFF / LOCK for each of your characters and works across two clients. With one client, or with Show only this character, it shows just you.
+- **Three themes.** Classic, plus **Vex** and **Hex link** modelled on the YunaUI party lists, each with its own settings, views and letter-only styles. Vex also comes in Blue & white. Each character keeps its own look.
 - **Settings window** in the VanaCore menu style, with Search, a window scale (75% to 150%), saved setups, and push / copy to the other client.
 
-Version: **3.1**. Tested on a current LandSandBoat (LSB) server running locally.
+Version: **3.2** (pre-release; the latest full release is 3.1). Tested on a current LandSandBoat (LSB) server running locally.
 
 - [User guide](docs/USER_GUIDE.md) (also as [StopMove_Guide.docx](StopMove_Guide.docx))
 - [Changelog](CHANGELOG.md)
@@ -27,7 +28,7 @@ Version: **3.1**. Tested on a current LandSandBoat (LSB) server running locally.
 
 ## Install
 
-1. Download `stopmove.zip` from the [latest release](https://github.com/Benthere407/StopMove/releases/latest) and unzip it. You get a folder called `stopmove` containing `stopmove.lua`.
+1. Download `stopmove.zip` from the [latest release](https://github.com/Benthere407/StopMove/releases/latest) (or the 3.2 pre-release on the [releases page](https://github.com/Benthere407/StopMove/releases)) and unzip it. You get a folder called `stopmove` containing `stopmove.lua`.
 2. Copy the whole `stopmove` folder into your Ashita addons folder, so this file exists: `<Ashita folder>\addons\stopmove\stopmove.lua`
 3. In game, type `/addon load stopmove`.
 4. To load it automatically, add `/addon load stopmove` to your Ashita startup script (usually `<Ashita folder>\scripts\default.txt`).
@@ -61,7 +62,7 @@ Updating? Replace `stopmove.lua` and type `/addon reload stopmove`. Your setting
 
 ## Notes
 
-- Keyboard only: gamepad and mouse movement are not blocked.
+- Mouse movement is not blocked. A controller is blocked only when Casting > Controller is set.
 - One plain-text Lua file. No .exe or .dll, no network access, no account details.
 - It does not cast, target, heal or fight for you.
 - For transparency:
@@ -78,6 +79,7 @@ Updating? Replace `stopmove.lua` and type `/addon reload stopmove`. Your setting
 - The Vex and Hex link theme appearances are modelled on **YunaUI** by **Yunas**.
 - The settings window is inspired by the **VanaCore** menus by **Vekien** and **Josh.Xero**.
 - Thanks to **Toots** for support in adjusting the cast lock durations for longer spells.
+- Thanks to **Stieg** for controller support and single-client mode.
 - Built on the Ashita v4 addon API and the Dear ImGui interface that ships with Ashita.
 - Multisend (by ThornyFFXI) is supported only through its `/ms follow` command.
 - No code from YunaUI, VanaCore or Multisend is included.

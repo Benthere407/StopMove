@@ -1,6 +1,6 @@
 # StopMove user guide
 
-_Version 3.1  |  Ashita v4 addon  |  user guide_
+_Version 3.2  |  Ashita v4 addon  |  user guide_
 
 > **Download:** https://github.com/Benthere407/StopMove/releases/latest  
 > **Project page:** https://github.com/Benthere407/StopMove  
@@ -17,6 +17,14 @@ StopMove blocks your numpad movement keys (and, if you want, W/A/S/D) while you 
 <p align="center"><img src="images/3.0/hex-view-a.png" width="342" alt="The Hex link theme (view A), next to the YunaUI Hex party list it is modelled on."><br><em>The Hex link theme (view A), next to the YunaUI Hex party list it is modelled on.</em></p>
 
 <p align="center"><img src="images/3.0/classic-ffxi-menu.png" width="191" alt="The Classic theme, as in 2.0."><br><em>The Classic theme, as in 2.0.</em></p>
+
+### What's new in 3.2
+
+3.2 is a pre-release. Controller support and single-client mode are thanks to **Stieg**.
+
+- **Controller** (Casting > Movement keys): **Left stick** stops an Xbox-style (XInput) controller's left stick moving you while you cast; **Whole controller** turns every controller off while you cast, buttons included, until the cast lock ends.
+- **Single-client mode**: with only one client running, the widget shows just that character. **Show only this character** (General) leaves the other client out even while it is running, and **Show an empty row with no second client** brings the old empty row back.
+- **Blue & white colours for Vex** (Widget > Vex options > Colours): near-black plates with an upright left side and a black edge, a blue ON tag, a dim OFF tag and a white LOCK, to sit beside blue and white party frames.
 
 ### What's new in 3.1
 
@@ -103,7 +111,8 @@ Pick a theme on the **Widget > Appearance** page. Everything below the Theme row
 - **Row style: Party.** Rows on their own, with no box or border behind them. **View A**: the ON / OFF tag, then the name plate over a bar in the state colour. **View B**: the name plate (the name over two slanted bars, with an empty spot at the right), then the tag.
 - **Row style: Menu.** Rounded cards. Each card's edge fades from pink-red on the left to violet on the right, a violet divider separates the name from a rounded ON / OFF tag, and the edge turns white while locked.
 - **Name style**: the full name (shortened to fit its box) or one letter, in style A, B or C. View A or B decides which side the ON / OFF part sits on.
-- **Gold name and edge on LOCK**: the name and plate edge turn gold during a cast.
+- **Gold name and edge on LOCK**: the name and plate edge turn gold during a cast (white in Blue & white).
+- **Colours**: **YunaUI** (green ON, red OFF, gold LOCK) or **Blue & white** (near-black plates with an upright left side and a black edge, a blue ON tag with white text, a dim OFF tag and a white LOCK). Picking one sets the colour pickers; you can still change them.
 
 <p align="center"><img src="images/3.0/vex-party-view-a.png" width="239" alt="Vex, Party, view A."><br><em>Vex, Party, view A.</em></p>
 
@@ -184,8 +193,8 @@ Open it with `/stopmove` or a right-click on the widget. Every change is saved a
 | Page | What is in it |
 |---|---|
 | About | What StopMove does, its commands, how to use the widget, and credits. |
-| General | Enabled for this character; Show the widget; Lock widget position and size; End the cast lock now. |
-| Casting | Disable numpad 8 / 2 / 4 / 6; Also disable W / A / S / D; Release held keys at cast start; Wait until stopped before casting. |
+| General | Enabled for this character; Show the widget; Lock widget position and size; Show only this character; Show an empty row with no second client; End the cast lock now. |
+| Casting | Disable numpad 8 / 2 / 4 / 6; Also disable W / A / S / D; Controller (Off, Left stick or Whole controller); Release held keys at cast start; Wait until stopped before casting. |
 | Follow | Multisend follow with its "Cast starts" and "Cast ends" commands and Hide Multisend follow messages; Stop and resume /follow with the Follow after cast name box. |
 | Timing | Spell cast delay and Max hold; Max cast lock and the two unlock waits. |
 | Widget > Appearance | Theme, Reset and Copy; Arrangement, Rotation and Align; Size; the Vex or Hex link options; Background; Names; ON / OFF. |
@@ -266,6 +275,7 @@ To start fresh, use Reset all, or unload the addon and delete the settings folde
 - The Vex and Hex link theme appearances are modelled on **YunaUI** by **Yunas**.
 - The settings window is inspired by the **VanaCore** menus by **Vekien** and **Josh.Xero**.
 - Thanks to **Toots** for support in adjusting the cast lock durations for longer spells.
+- Thanks to **Stieg** for controller support and single-client mode.
 - Built on the Ashita v4 addon API and the Dear ImGui interface that ships with Ashita (AshitaXI).
 - Multisend by ThornyFFXI is supported by sending its documented `/ms follow` command. None of its code is included.
 - No code from YunaUI or VanaCore is included; StopMove draws its own look.
@@ -273,9 +283,9 @@ To start fresh, use Reset all, or unload the addon and delete the settings folde
 ### Safety
 
 - One plain-text Lua file. No .exe or .dll. The zip is a normal zip, not self-extracting.
-- SHA-256 of stopmove.zip: ad9b15ef788acaca9180fb9a667f0f9f82183ab7fdd69ad4a180c87c7ea4dd7f
+- SHA-256 of stopmove.zip: 9440239cccd4ca608d33046fdf9141a8f9094b40eaf896d674646421148d5f62
 - No account details, tokens or logins are in the file. It does not use the network.
-- It does not cast, target, heal or fight for you. It is keyboard-only: gamepad and mouse movement are not blocked.
+- It does not cast, target, heal or fight for you. Mouse movement is not blocked; a controller is blocked only when Casting > Controller is set.
 - For transparency: with Wait until stopped on, it briefly holds your own cast request and re-sends it unchanged. It can send simulated key-release events at cast start, and a key-press after Allow Move, for movement keys you are physically holding. With In-game auto-follow on, it stops and restarts the game's auto-follow, or sends `/follow <name>`. It reads the spell's cast time from the game's own spell data. It does not change position packets. Each of these can be switched off in the settings window.
 
 ### Bugs and questions
@@ -286,9 +296,10 @@ Report bugs or ask questions on the GitHub Issues page: https://github.com/Benth
 
 | Item | Details |
 |---|---|
-| File in the zip | stopmove/stopmove.lua (about 170 KB, 3,514 lines, plain text) |
-| SHA-256 stopmove.zip | ad9b15ef788acaca9180fb9a667f0f9f82183ab7fdd69ad4a180c87c7ea4dd7f |
-| SHA-256 stopmove.lua | dc2cf8ab938600772ac67ff006d6a84f730a9db944c444c02a654457fa78681d |
+| File in the zip | stopmove/stopmove.lua (about 177 KB, 3,607 lines, plain text) |
+| SHA-256 stopmove.zip | 9440239cccd4ca608d33046fdf9141a8f9094b40eaf896d674646421148d5f62 |
+| SHA-256 stopmove.lua | b0750e5b64fd40ffb0bd1d4e6b7e1480a6e8c2eedfce344fbf4f09286cd66059 |
+| Changes in v3.2 | Pre-release. Controller option (left stick or whole controller while casting); single-client mode (one row with one client, Show only this character, Show an empty row with no second client); Blue & white colours for Vex. Controller support and single-client mode thanks to Stieg. |
 | Changes in v3.1 | Settings window brought closer to VanaCore's menu: a window scale (75% to 150%, per character), a top bar with the section name, shrink and close, Segoe UI text under VanaCore, and VanaCore-style sliders (they replace the Timing and Widget size number boxes). |
 | Changes in v3.0 | Classic, Vex and Hex link themes, each with its own settings and Reset; new VanaCore-style settings window with Search; Save and load, Push and Copy to the other client; looks per character; red INT on interrupted casts; paralyzed and intimidated casts count as interrupted; the safety timer covers each spell's own cast time and Max cast lock defaults to 9 s; Shift + drag; widget UI and Allow Move buttons removed. |
 | Changes in v2.0 | In-game auto-follow option with a Follow after cast name box; "Release now" renamed Allow Move, added as `/stopmove move`, frees both clients and re-presses held movement keys; Letter inside the shape widget; mouse-wheel resizing and a Widget size slider; Hold position while casting removed, so position packets are never changed. |

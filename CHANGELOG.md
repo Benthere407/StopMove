@@ -1,5 +1,29 @@
 # StopMove changelog
 
+## 3.2 (pre-release)
+
+3.2 adds controller blocking, a single-client mode for the widget, and Blue & white colours for the Vex theme.
+
+Thanks to **Stieg** for controller support and single-client mode.
+
+### Added
+- **Controller** (Settings > Casting > Movement keys), shared by both clients:
+  - **Off** (the default): the controller works as before.
+  - **Left stick**: while you cast, the game reads the left stick as centred, so it can't move you. Buttons, D-pad, triggers and the right stick still work. Xbox-style (XInput) controllers only.
+  - **Whole controller**: every controller is off while you cast, of any kind and buttons included. It comes back when the cast lock ends (also on Allow Move, when StopMove is switched off, or when the addon unloads).
+- **Single-client mode** for the widget:
+  - With only one client running, the widget shows just that character; the empty "no 2nd client" row is gone. When the second client starts StopMove, its row comes back.
+  - **Show only this character** (General): the widget leaves out the other client even while it is running. Syncing between the clients carries on as before.
+  - **Show an empty row with no second client** (General) brings the old empty row back.
+  - Both are kept per character and are not sent with Copy to the other client.
+- **Colours for Vex** (Widget > Vex options > Colours): **YunaUI** (as before) or **Blue & white**, to sit beside blue and white party frames:
+  - near-black name plates with an upright left side and a black edge;
+  - a blue ON tag with white text, a dim OFF tag and a white LOCK, each with a thin white outline;
+  - the plate edge and name light up white while locked ("White name and edge on LOCK");
+  - Menu cards with a blue to pale blue edge.
+
+  Picking a scheme sets the colour pickers; you can still change them, and each section's reset uses the scheme's colours.
+
 ## 3.1
 
 3.1 brings the settings window closer to VanaCore's own menu, and adds a window scale.

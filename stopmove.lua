@@ -15,12 +15,12 @@
         /stopmove resetbox   put the on-screen box back at normal size, top-left
         /stopmove move       Allow Move: end the cast lock now (same as the widget button)
 
-    NOTE: Keyboard movement only. Gamepad / mouse movement is not blocked.
+    NOTE: Mouse movement is not blocked. A controller is blocked only with Casting > Controller set.
 --]]
 
 addon.name    = 'stopmove'
 addon.author  = 'Claude'
-addon.version = '3.1'
+addon.version = '3.2'
 addon.desc    = 'Blocks numpad movement while casting (toggleable, multi-client aware).'
 addon.link    = ''
 
@@ -34,8 +34,11 @@ local ffi   = require('ffi')
 local enabled  = true   -- master toggle (starts ON when loaded)
 local block_keys = true   -- disable keyboard movement (numpad) while casting
 local block_wasd = false  -- ... and also W/A/S/D
+local block_pad  = 0      -- controller while casting: 0 nothing, 1 the left stick, 2 the whole controller
 local lock_pos   = false  -- lock the on-screen box position and size
 local ui_scale   = 1.0    -- the settings window's scale (its header's < 100% > stepper)
+local show_empty = false  -- with no second client, still show its empty row on the widget
+local only_self  = false  -- show only this character on the widget, even with a second client
 
 -- Multisend follow: turned off when a cast starts, back on after it ends.
 --   ms_off_cmd : chat command sent when the cast starts   (blank = send nothing)
@@ -412,7 +415,7 @@ local theme = 'classic'
 -- (layout_mode, rot, ...) and are swapped in and out when the look changes.
 local TH_DEFAULT = {
     classic = { layout = 0, rot = 0, low = false, letter = false, alpha = 1.0 },
-    vex = { row = 'party', ls = 'B', frame = true, goldlock = true, size = 1.0, view = 'A', bar_w = 110,
+    vex = { row = 'party', ls = 'B', frame = true, goldlock = true, size = 1.0, view = 'A', bar_w = 110, scheme = 'yuna',
             name_w = 150, name_h = 30, tag_w = 40, tag_h = 17, gap = 0, align = 'left',
             plate = { 0.085, 0.08, 0.11 }, plate_a = 0.88,
             layout = 0, rot = 0, low = false, letter = false, alpha = 1.0,
@@ -426,6 +429,13 @@ local TH_DEFAULT = {
             lockname = { 0.95, 0.70, 0.24 }, tagauto = true },
 }
 local TH = { classic = {}, vex = {}, hex = {} }
+-- Vex's Blue & white colours: near-black plates with a black edge, a blue ON tag, a dim
+-- navy OFF tag and a white LOCK, to sit beside blue and white party frames
+TH_DEFAULT.vex_blue = {
+    plate = { 0.055, 0.055, 0.065 }, plate_a = 0.88, name = { 0.95, 0.97, 1.00, 1 },
+    on = { 0.35, 0.55, 1.00 }, off = { 0.20, 0.25, 0.36 }, lock = { 0.93, 0.96, 1.00 },
+    lockname = { 0.80, 0.92, 1.00 },
+}
 
 -- Vex and Hex link also get their own copy of the Classic look's style table
 -- (background box, border, name text, ON / OFF text): TH.vex.st / TH.hex.st.
@@ -447,6 +457,12 @@ end
 reset_theme('classic')
 reset_theme('vex')
 reset_theme('hex')
+
+-- a look's default colours (Vex in Blue & white has its own)
+local function look_colours(id)
+    if id == 'vex' and TH.vex.scheme == 'blue' then return TH_DEFAULT.vex_blue end
+    return TH_DEFAULT[id]
+end
 
 -- a style table <-> "bg:0.060/0.060/0.080/0.000,border_w:1,name__size:1.000,..."
 local function style_ser(st)
@@ -552,6 +568,11 @@ local function theme_parse(id, s)
         if o.tag_w == 50 and o.tag_h == 20 then o.tag_w, o.tag_h = 38, 17 end
     elseif id == 'vex' then                                -- (Vex Party tag: 48 x 22 -> 40 x 17)
         local o = TH.vex
+        local pl = o.plate
+        if o.scheme == 'blue' and math.abs(pl[1] - 0.055) < 0.002 and math.abs(pl[2] - 0.075) < 0.002 and math.abs(pl[3] - 0.13) < 0.002 then
+            o.plate, o.plate_a = { 0.055, 0.055, 0.065 }, 0.88
+            if math.abs(o.on[1] - 0.30) < 0.002 and math.abs(o.on[2] - 0.55) < 0.002 then o.on = { 0.35, 0.55, 1.00 } end
+        end
         if o.row == 'party' and o.tag_w == 48 and o.tag_h == 22 then o.tag_w, o.tag_h = 40, 17 end
         if o.row == 'menu' and o.name_w == 100 and o.name_h == 17 and o.tag_w == 34 and o.tag_h == 13 then
             o.name_w, o.name_h, o.tag_w, o.tag_h, o.gap = 96, 26, 40, 16, 10   -- (the new Menu cards)
@@ -570,7 +591,7 @@ local function f4(t) return ('%.3f,%.3f,%.3f,%.3f'):format(t[1], t[2], t[3], t[4
 -- options and the widget's looks - is per character, in look_<name>.txt, so one
 -- client's appearance never carries over to the other.
 local SHARED = {
-    wait = true, still = true, waitmax = true, maxlock = true, block_keys = true, block_wasd = true,
+    wait = true, still = true, waitmax = true, maxlock = true, block_keys = true, block_wasd = true, block_pad = true,
     inject = true, unlock_done = true, unlock_int = true, ms_enabled = true, ms_quiet = true,
     ms_offcmd = true, ms_oncmd = true, game_follow = true, game_follow_name = true,
 }
@@ -599,11 +620,14 @@ local function save_settings()
         'lock_col=' .. f4(S.lock_col),
         ('block_keys=%d'):format(block_keys and 1 or 0),
         ('block_wasd=%d'):format(block_wasd and 1 or 0),
+        ('block_pad=%d'):format(block_pad),
         ('badge_circle=%d'):format(S.badge_circle and 1 or 0),
         ('badge_text=%d'):format(S.badge_text and 1 or 0),
         ('inject=%d'):format(inject and 1 or 0),
         ('lock_pos=%d'):format(lock_pos and 1 or 0),
         ('ui_scale=%.2f'):format(ui_scale),
+        ('show_empty=%d'):format(show_empty and 1 or 0),
+        ('only_self=%d'):format(only_self and 1 or 0),
         ('low_profile=%d'):format(low_profile and 1 or 0),
         ('letter_badge=%d'):format(letter_badge and 1 or 0),
         ('layout=%d'):format(layout_mode),
@@ -718,6 +742,7 @@ local function apply_settings(data, shared_only)
             elseif k == 'lock_col'    then col(S.lock_col)
             elseif k == 'block_keys'  then block_keys    = (x ~= 0)
             elseif k == 'block_wasd'  then block_wasd    = (x ~= 0)
+            elseif k == 'block_pad'   then block_pad     = math.floor(clamp(x, 0, 2))
             elseif k == 'badge_circle' then S.badge_circle = (x ~= 0)
             elseif k == 'badge_text'  then S.badge_text  = (x ~= 0)
             elseif k == 'ms_enabled'  then ms_enabled    = (x ~= 0)
@@ -726,6 +751,8 @@ local function apply_settings(data, shared_only)
             elseif k == 'inject'      then inject        = (x ~= 0)
             elseif k == 'lock_pos'    then lock_pos      = (x ~= 0)
             elseif k == 'ui_scale'    then ui_scale      = clamp(x, 0.75, 1.5)
+            elseif k == 'show_empty'  then show_empty    = (x ~= 0); refit = true
+            elseif k == 'only_self'   then only_self     = (x ~= 0); refit = true
             elseif k == 'low_profile' then low_profile   = (x ~= 0); refit = true
             elseif k == 'letter_badge' then letter_badge = (x ~= 0); refit = true
             elseif k == 'layout'      then layout_mode   = (x == 1) and 1 or 0
@@ -846,7 +873,7 @@ end
 -- Copy this theme to the other client: its theme and that theme's own
 -- settings go in copy_<name>.txt, which that client picks up and deletes.
 ----------------------------------------------------------------------
-local NOT_COPIED = { show_ui = true, lock_pos = true, ui_scale = true, cfg_btn = true, move_btn = true }
+local NOT_COPIED = { show_ui = true, lock_pos = true, ui_scale = true, show_empty = true, only_self = true, cfg_btn = true, move_btn = true }
 
 -- Push a whole configuration to the other client: a saved file (or, with no
 -- file, the settings in use now) goes in push_<name>.txt. That client saves
@@ -1292,6 +1319,32 @@ ashita.events.register('key_state', 'stopmove_key_state', function(e)
     end
 end)
 
+-- The controller while casting (Casting > Controller). Left stick: the XInput
+-- state the game is about to read gets its left stick centred. Whole controller:
+-- VanaCore turns every controller off until the cast lock ends.
+pcall(ffi.cdef, [[
+    typedef struct { uint16_t wButtons; uint8_t bLeftTrigger; uint8_t bRightTrigger;
+                     int16_t sThumbLX; int16_t sThumbLY; int16_t sThumbRX; int16_t sThumbRY; } sm_XPAD;
+    typedef struct { uint32_t dwPacketNumber; sm_XPAD Gamepad; } sm_XSTATE;
+]])
+ashita.events.register('xinput_state', 'stopmove_xinput_state', function(e)
+    if not (enabled and casting and block_pad == 1) then return end
+    local ptr = e.state_modified or e.state
+    if ptr == nil then return end
+    pcall(function()
+        local g = ffi.cast('sm_XSTATE*', ptr).Gamepad
+        g.sThumbLX, g.sThumbLY = 0, 0
+    end)
+end)
+local pad_off = false           -- did StopMove turn the controllers off?
+local function pad_tick()
+    local want = enabled and casting and block_pad == 2
+    if want == pad_off then return end
+    local vana = rawget(_G, 'vana')
+    if not (vana and vana.gamepad and vana.gamepad.disable) then return end
+    if pcall(vana.gamepad.disable, want) then pad_off = want end
+end
+
 -- Box background + border, sized as the box plus the width/height adjustments.
 local function draw_background(wx, wy, ww, wh)
     local x1, y1 = wx, wy
@@ -1407,10 +1460,17 @@ local function draw_themed(entries, flags)
     local o   = TH[theme]
     local st  = o.st                               -- this look's box / text style
     -- this look's tag colours: the fill, a lighter inner line and dark text
+    local blue = (theme == 'vex' and o.scheme == 'blue')
     local function tagset(c)
-        return { c, { c[1] + (1 - c[1]) * 0.45, c[2] + (1 - c[2]) * 0.45, c[3] + (1 - c[3]) * 0.45 },
-                 { c[1] * 0.18, c[2] * 0.18, c[3] * 0.18 } }
+        local tc = { c[1] * 0.18, c[2] * 0.18, c[3] * 0.18 }
+        if blue then                               -- Blue & white: white text, navy on a bright tag
+            local lum = 0.30 * c[1] + 0.59 * c[2] + 0.11 * c[3]
+            tc = (lum > 0.6) and { 0.06, 0.09, 0.18 } or { 1, 1, 1 }
+        end
+        return { c, { c[1] + (1 - c[1]) * 0.45, c[2] + (1 - c[2]) * 0.45, c[3] + (1 - c[3]) * 0.45 }, tc }
     end
+    local EDGE = blue and { 0, 0, 0 } or { 0.29, 0.27, 0.34 }   -- the plates' edge (black in Blue & white)
+    local TRACK = blue and { 0.09, 0.12, 0.21 } or { 0.14, 0.13, 0.17 }  -- under the bars
     local TAGC = { on = tagset(o.on), off = tagset(o.off), lock = tagset(o.lock),
                    none = TAGC.none, vbtn = TAGC.vbtn, hbtn = TAGC.hbtn, int = TAGC.int }
     local vex = (theme == 'vex')
@@ -1629,24 +1689,31 @@ local function draw_themed(entries, flags)
         -- Vex: a slanted tag / plate (left edge leaning like "/")
         local function par(x, y, w, h, k) return { { x + k, y }, { x + w, y }, { x + w - k, y + h }, { x, y + h } } end
         local function vex_tag(x, y, w, h, c, str, px)
-            -- left side upright, right side slanted like the plate (as YunaUI's job tags)
+            -- left side upright, right side slanted like the plate (as YunaUI's job tags);
+            -- Blue & white: the other way round, so its upright side meets the plate's
             local k = h * 0.32
-            poly_fill(dl, { { x, y }, { x + w, y }, { x + w - k, y + h }, { x, y + h } }, u32(c[1]))
-            if str and str ~= '' then text_c(x + (w - k / 2) / 2, y + h / 2, str, px * TAG_K, tag_text(c), TAG_PART) end
+            local P = { { x, y }, { x + w, y }, { x + w - k, y + h }, { x, y + h } }
+            if blue then P = { { x + k, y }, { x + w, y }, { x + w, y + h }, { x, y + h } } end
+            poly_fill(dl, P, u32(c[1]))
+            if blue then poly_line(dl, P, u32({ 0.92, 0.95, 1.0 }, 0.85), 1) end
+            if str and str ~= '' then text_c(x + (blue and (w + k / 2) or (w - k / 2)) / 2, y + h / 2, str, px * TAG_K, tag_text(c), TAG_PART) end
         end
         local function vex_plate(x, y, w, h, lock)
             local p = par(x, y, w, h, h * 0.32)
+            if blue then p[1] = { x, y } end           -- Blue & white: the left side upright
             poly_fill(dl, p, u32(o.plate, o.plate_a))
             if lock and o.goldlock then
                 poly_line(dl, p, u32(TAGC.lock[1], 0.25), 3.5 * u)
                 poly_line(dl, p, u32(TAGC.lock[1], 0.95), 1)
             else
-                poly_line(dl, p, u32({ 0.29, 0.27, 0.34 }, 0.8), 1)
+                poly_line(dl, p, u32(EDGE, blue and 1 or 0.8), 1)
             end
         end
         local function vex_tag_r(x, y, w, h, c, str, px)   -- view B: upright right side, left leaning with the plate
             local k = h * 0.32
-            poly_fill(dl, { { x + k, y }, { x + w, y }, { x + w, y + h }, { x, y + h } }, u32(c[1]))
+            local P = { { x + k, y }, { x + w, y }, { x + w, y + h }, { x, y + h } }
+            poly_fill(dl, P, u32(c[1]))
+            if blue then poly_line(dl, P, u32({ 0.92, 0.95, 1.0 }, 0.85), 1) end
             if str and str ~= '' then text_c(x + (w + k / 2) / 2, y + h / 2, str, px * TAG_K, tag_text(c), TAG_PART) end
         end
         -- Vex Menu: a rounded near-black card with a violet edge and a soft violet glow (white
@@ -1654,6 +1721,7 @@ local function draw_themed(entries, flags)
         -- the card's edge runs pink-red at the left to violet at the right, as YunaUI's Vex map
         -- frame (white while locked); drawn as short segments, each in the colour of its place
         local EDGE_L, EDGE_R = { 1.00, 0.36, 0.62 }, { 0.62, 0.40, 1.00 }
+        if blue then EDGE_L, EDGE_R = { 0.30, 0.52, 0.98 }, { 0.78, 0.90, 1.00 } end
         local function card_edge(x, y, w, h, r, th, a, lock)
             local pts = {}
             local function arc(cx, cy, a0, a1)
@@ -1681,8 +1749,8 @@ local function draw_themed(entries, flags)
             card_edge(x, y, w, h, r, 1.3, 0.95, lock)
         end
         local function vex_vdiv(cx, y, h)                  -- the divider: violet, with a faint glow
-            dl:AddLine({ cx, y + 5 * u }, { cx, y + h - 5 * u }, u32({ 0.62, 0.40, 1.0 }, 0.35), 3.5 * u)
-            dl:AddLine({ cx, y + 5 * u }, { cx, y + h - 5 * u }, u32({ 0.78, 0.62, 1.0 }, 1), 1.2)
+            dl:AddLine({ cx, y + 5 * u }, { cx, y + h - 5 * u }, u32(blue and { 0.40, 0.62, 1.0 } or { 0.62, 0.40, 1.0 }, 0.35), 3.5 * u)
+            dl:AddLine({ cx, y + 5 * u }, { cx, y + h - 5 * u }, u32(blue and { 0.72, 0.86, 1.0 } or { 0.78, 0.62, 1.0 }, 1), 1.2)
         end
         local function vex_rtag(l, t, r, b, c, str, px, tc)
             local rr = math.min(5 * u, (b - t) / 2)
@@ -1692,7 +1760,7 @@ local function draw_themed(entries, flags)
             if str and str ~= '' then text_c((l + r) / 2, (t + b) / 2, str, px * TAG_K, tc or tag_text(c), tc and st.state or TAG_PART) end
         end
         local function vex_bar(x, y, w, c)
-            dl:AddRectFilled({ x, y }, { x + w, y + 3 * u }, u32({ 0.14, 0.13, 0.17 }, 0.9), 0)
+            dl:AddRectFilled({ x, y }, { x + w, y + 3 * u }, u32(TRACK, 0.9), 0)
             dl:AddRectFilled({ x, y }, { x + w, y + 3 * u }, u32(c[1]), 0)
         end
 
@@ -1800,7 +1868,7 @@ local function draw_themed(entries, flags)
                             poly_line(dl, P, u32(c[1], 0.25), 3.5 * u)
                             poly_line(dl, P, u32(c[1], 0.95), 1)
                         else
-                            poly_line(dl, P, u32({ 0.29, 0.27, 0.34 }, 0.8), 1)
+                            poly_line(dl, P, u32(EDGE, blue and 1 or 0.8), 1)
                         end
                         local ty = y + (h - 7 * u) / 2
                         text_c(x + w / 2 + k * (0.5 - (ty - y) / h) , ty, it.txt, LET_PX * 1.5, lock and o.goldlock and o.lockname or { 1, 1, 1 })
@@ -1819,7 +1887,7 @@ local function draw_themed(entries, flags)
                             vex_tag_r(x + pw - touch, y + (h - th_) / 2, tw_, th_, c, '', 10)
                         else
                             vex_tag(x, y + (h - th_) / 2, tw_, th_, c, '', 10)
-                            local px = x + tw_ - touch
+                            local px = x + tw_ - (blue and 0 or touch)
                             vex_plate(px, y, pw, h, lock)
                             text_c(px + pw / 2 - 1 * u, y + h / 2, it.txt, LET_PX, ncol)
                         end
@@ -1896,7 +1964,7 @@ local function draw_themed(entries, flags)
                 local mid = il + (br - il) * 0.5
                 local function bar(x0, x1, col)
                     local P = { { x0 + sk, by - 1 * u }, { x1 + sk, by - 1 * u }, { x1, by - 1 * u + bh }, { x0, by - 1 * u + bh } }
-                    poly_fill(dl, P, u32({ 0.14, 0.13, 0.17 }, 0.9))
+                    poly_fill(dl, P, u32(TRACK, 0.9))
                     poly_fill(dl, P, u32(col))
                 end
                 bar(il - 2 * u, mid - 3 * u, c[1])
@@ -1909,7 +1977,7 @@ local function draw_themed(entries, flags)
                 local tw_, th_ = o.tag_w * u, o.tag_h * u
                 local tag_px = math.min(alliance and 8.5 or 10.5, o.tag_h * 0.62)
                 vex_tag(x, y + (h - th_) / 2, tw_, th_, c, st.badge_text and LBL[it.st] or '', tag_px)
-                local px = x + tw_ + (o.gap - 0.32 * (o.name_h + o.tag_h) / 2) * u   -- gap 0: its slanted edge on the plate's
+                local px = x + tw_ + (o.gap - (blue and 0 or 0.32 * (o.name_h + o.tag_h) / 2)) * u   -- gap 0: its slanted edge on the plate's
                 local ph = o.name_h * u
                 local py = y + (h - ph) / 2
                 vex_plate(px, py, o.name_w * u, ph, lock)
@@ -2110,9 +2178,9 @@ function CFG.reset_all()
     S = default_style()
     ui_alpha = 1.0
     enabled = true
-    show_ui, lock_pos, ui_scale = true, false, 1.0
+    show_ui, lock_pos, ui_scale, show_empty, only_self = true, false, 1.0, false, false
     low_profile, letter_badge, layout_mode, rot = false, false, 0, 0
-    block_keys, block_wasd, inject, wait_for_stop = true, false, true, true
+    block_keys, block_wasd, inject, wait_for_stop, block_pad = true, false, true, true, 0
     ms_enabled, ms_quiet, ms_off_cmd, ms_on_cmd = true, true, '/ms follow off', '/ms follow on'
     gf_enabled, gf_name, gf_saved = true, '', nil
     WAIT_STILL, WAIT_MAX, MAX_LOCK, UNLOCK_DONE, UNLOCK_INT = 0.15, 1.0, 9, 0.0, 10.0
@@ -2382,18 +2450,25 @@ local function draw_config()
             v = switch('Enabled for this character', enabled);  if v ~= nil then set_enabled(v) end
             v = switch('Show the widget', show_ui);              if v ~= nil then show_ui = v end
             v = switch('Lock widget position and size', lock_pos); if v ~= nil then lock_pos = v end
+            v = switch('Show only this character', only_self); if v ~= nil then only_self = v; refit = true end
+            if not only_self then
+                v = switch('Show an empty row with no second client', show_empty); if v ~= nil then show_empty = v; refit = true end
+            end
+            note('Show only this character: the widget leaves out the other client, even while it is running. Otherwise, with only this client running, it shows just this character unless the empty row is on.')
             section('ALLOW MOVE')
             if button_row('End the cast lock now', 'Allow Move') then allow_move() end
             note('Allow Move frees every locked character and lets a key you are holding move you straight away.')
         end
         PAGES.casting = function()
             title('Casting')
-            section('MOVEMENT KEYS', function() block_keys, block_wasd, inject = true, false, true end)
+            section('MOVEMENT KEYS', function() block_keys, block_wasd, inject, block_pad = true, false, true, 0 end)
             local v
             v = switch('Disable numpad 8 / 2 / 4 / 6', block_keys);          if v ~= nil then block_keys = v end
             v = switch('Also disable W / A / S / D *', block_wasd);          if v ~= nil then block_wasd = v end
+            v = seg('Controller', { { 0, 'Off' }, { 1, 'Left stick' }, { 2, 'Whole controller' } }, block_pad); if v ~= nil then block_pad = v end
             v = switch('Release held keys at cast start', inject);           if v ~= nil then inject = v end
             note('* W / A / S / D also stop working in chat while you cast.')
+            note('Controller: Left stick stops the stick moving you while you cast (Xbox / XInput controllers). Whole controller turns every controller off while you cast, any kind, buttons included; it comes back when the cast lock ends.')
             section('BEFORE THE CAST', function() wait_for_stop = true end)
             v = switch('Wait until stopped before casting', wait_for_stop);  if v ~= nil then wait_for_stop = v; pending = nil end
             note('If you press a spell while moving, it is held until you have stood still for the spell cast delay (Timing).')
@@ -2454,6 +2529,7 @@ local function draw_config()
             note('Written with Claude (Anthropic), directed and tested by Benthere407. Built on Ashita v4 and its Dear ImGui. Multisend (ThornyFFXI) is used only through /ms follow.')
             note('The Vex and Hex link looks are modelled on YunaUI by Yunas. The settings window is inspired by the VanaCore menus by Vekien and Josh.Xero.')
             note('Thanks to Toots for support in adjusting the cast lock durations for longer spells.')
+            note('Thanks to Stieg for controller support and single-client mode.')
         end
 
         PAGES.files = function()
@@ -2615,6 +2691,16 @@ local function draw_config()
                     local d = TH_DEFAULT.vex
                     o.row, o.ls, o.frame, o.goldlock, o.view, o.bar_w = d.row, d.ls, d.frame, d.goldlock, d.view, d.bar_w
                 end)
+                v = seg('Colours', { { 'yuna', 'YunaUI' }, { 'blue', 'Blue & white' } }, o.scheme)
+                if v ~= nil and v ~= o.scheme then
+                    o.scheme = v
+                    local d = look_colours('vex')
+                    for _, k in ipairs({ 'plate', 'on', 'off', 'lock', 'lockname' }) do o[k] = { d[k][1], d[k][2], d[k][3] } end
+                    o.plate_a = d.plate_a
+                    local nc = d.name or themed_style().name.color
+                    o.st.name.color = { nc[1], nc[2], nc[3], nc[4] }
+                    o.tagauto = true
+                end
                 v = seg('Row style', { { 'party', 'Party' }, { 'menu', 'Menu' } }, o.row)
                 if v ~= nil then
                     o.row = v
@@ -2625,10 +2711,11 @@ local function draw_config()
                     if v == 'full' then low_profile = false else low_profile = true; o.ls = v end
                     refit = true
                 end
-                v = switch('Gold name and edge on LOCK', o.goldlock); if v ~= nil then o.goldlock = v end
+                v = switch((o.scheme == 'blue' and 'White' or 'Gold') .. ' name and edge on LOCK', o.goldlock); if v ~= nil then o.goldlock = v end
                 v = seg('View', { { 'A', 'A' }, { 'B', 'B' } }, o.view);  if v ~= nil then o.view = v end
                 note('View A: the ON / OFF tag, then the name plate. View B: the name plate first (the name over two coloured bars, an empty spot at its right), then the ON / OFF tag.')
                 note('Party: rows on their own, like the party list. Menu: rounded Vex cards, their edge pink to violet, a violet divider and rounded tags. Name style: the full name (shortened to fit its box) or one letter in style A, B or C.')
+                note('Colours: YunaUI (green ON, red OFF, gold LOCK) or Blue & white (navy plates with a light blue edge, a blue ON tag, a dim OFF tag and a white LOCK, to match blue and white party frames). Picking one sets the colours below; you can still change them.')
             elseif theme == 'hex' then
                 section('HEX LINK OPTIONS', function()
                     local d = TH_DEFAULT.hex
@@ -2658,7 +2745,7 @@ local function draw_config()
                 st.menu_top, st.menu_mid, st.menu_bottom = d.menu_top, d.menu_mid, d.menu_bottom
                 ui_alpha = 1.0
                 if not classic then
-                    local dd = TH_DEFAULT[theme]
+                    local dd = look_colours(theme)
                     o.plate, o.plate_a = { dd.plate[1], dd.plate[2], dd.plate[3] }, dd.plate_a
                 end
             end)
@@ -2702,8 +2789,10 @@ local function draw_config()
             section('NAMES', function()
                 st.name = fresh().name
                 if classic then S.lock_name_tint = true else
-                    local d = TH_DEFAULT[theme].lockname
+                    local d = look_colours(theme).lockname
                     o.lockname = { d[1], d[2], d[3] }
+                    local nc = look_colours(theme).name
+                    if nc then st.name.color = { nc[1], nc[2], nc[3], nc[4] } end
                 end
             end)
             text_options('Name', st.name)
@@ -2727,7 +2816,7 @@ local function draw_config()
                 if classic then
                     S.on_col, S.off_col, S.lock_col, S.badge_circle = d.on_col, d.off_col, d.lock_col, d.badge_circle
                 else
-                    local dd = TH_DEFAULT[theme]
+                    local dd = look_colours(theme)
                     for _, k in ipairs({ 'on', 'off', 'lock' }) do o[k] = { dd[k][1], dd[k][2], dd[k][3] } end
                     o.tagauto = true
                 end
@@ -3023,6 +3112,7 @@ end
 
 ashita.events.register('d3d_present', 'stopmove_present', function()
     cast_tick()
+    pad_tick()
 
     sync_tick()
 
@@ -3069,8 +3159,10 @@ ashita.events.register('d3d_present', 'stopmove_present', function()
                    locked = casting or os.clock() < test_lock_until, id = 'self',
                    int = blink and os.clock() < int_until,
                    active = true, click = function() set_enabled(not enabled) end }
-    if other_count == 0 then
-        entries[2] = { name = disp('(no 2nd client)'), full = '(no 2nd client)', on = false, locked = false, id = 'none', active = false }
+    if only_self then
+        -- (just this character)
+    elseif other_count == 0 then
+        if show_empty then entries[2] = { name = disp('(no 2nd client)'), full = '(no 2nd client)', on = false, locked = false, id = 'none', active = false } end
     else
         for _, pname in ipairs(other_names) do
             local info = other_clients[pname]
@@ -3509,6 +3601,7 @@ ashita.events.register('unload', 'stopmove_unload', function()
     pending = nil
     pcall(save_char)
     stop_cast('addon unloading')
+    pad_tick()                  -- (the controllers back on)
     -- remove our heartbeat so the other client notices us leaving quickly
     if hb_file then os.remove(hb_file) end
 end)

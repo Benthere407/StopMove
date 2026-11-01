@@ -20,7 +20,7 @@
 
 addon.name    = 'stopmove'
 addon.author  = 'Claude'
-addon.version = '3.2'
+addon.version = '3.2.1'
 addon.desc    = 'Blocks numpad movement while casting (toggleable, multi-client aware).'
 addon.link    = ''
 

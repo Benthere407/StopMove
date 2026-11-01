@@ -1,5 +1,10 @@
 # StopMove changelog
 
+## 3.2.1 (pre-release)
+
+### Fixed
+- **Controller auto-run** kept running during a cast. A controller's auto-run is the game's own running state, which blocking the stick or the buttons doesn't reach. With Casting > Controller set to **Left stick** or **Whole controller**, StopMove now stops auto-run when a cast starts and keeps it stopped until the cast ends; press auto-run again afterwards to restart it. A `/follow` is left to In-game auto-follow, as before.
+
 ## 3.2 (pre-release)
 
 3.2 adds controller blocking, a single-client mode for the widget, and Blue & white colours for the Vex theme.
@@ -11,7 +16,6 @@ Thanks to **Stieg** for controller support and single-client mode.
   - **Off** (the default): the controller works as before.
   - **Left stick**: while you cast, the game reads the left stick as centred, so it can't move you. Buttons, D-pad, triggers and the right stick still work. Xbox-style (XInput) controllers only.
   - **Whole controller**: every controller is off while you cast, of any kind and buttons included. It comes back when the cast lock ends (also on Allow Move, when StopMove is switched off, or when the addon unloads).
-  - Either setting also stops auto-run when a cast starts, and keeps it stopped until the cast ends. (A controller's auto-run is the game's own running state, which blocking the stick or buttons doesn't reach.) A `/follow` is left to In-game auto-follow.
 - **Single-client mode** for the widget:
   - With only one client running, the widget shows just that character; the empty "no 2nd client" row is gone. When the second client starts StopMove, its row comes back.
   - **Show only this character** (General): the widget leaves out the other client even while it is running. Syncing between the clients carries on as before.

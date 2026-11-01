@@ -22,7 +22,7 @@ StopMove blocks your numpad movement keys (and, if you want, W/A/S/D) while you 
 
 3.2 is a pre-release. Controller support and single-client mode are thanks to **Stieg**.
 
-- **Controller** (Casting > Movement keys): **Left stick** stops an Xbox-style (XInput) controller's left stick moving you while you cast; **Whole controller** turns every controller off while you cast, buttons included, until the cast lock ends.
+- **Controller** (Casting > Movement keys): **Left stick** stops an Xbox-style (XInput) controller's left stick moving you while you cast; **Whole controller** turns every controller off while you cast, buttons included, until the cast lock ends. Either one also stops auto-run while you cast.
 - **Single-client mode**: with only one client running, the widget shows just that character. **Show only this character** (General) leaves the other client out even while it is running, and **Show an empty row with no second client** brings the old empty row back.
 - **Blue & white colours for Vex** (Widget > Vex options > Colours): near-black plates with an upright left side and a black edge, a blue ON tag, a dim OFF tag and a white LOCK, to sit beside blue and white party frames.
 
@@ -283,7 +283,7 @@ To start fresh, use Reset all, or unload the addon and delete the settings folde
 ### Safety
 
 - One plain-text Lua file. No .exe or .dll. The zip is a normal zip, not self-extracting.
-- SHA-256 of stopmove.zip: 9440239cccd4ca608d33046fdf9141a8f9094b40eaf896d674646421148d5f62
+- SHA-256 of stopmove.zip: 29ee983df809f651c601b35c12e6d76b3693129b5d4690516694b358cdad9bac
 - No account details, tokens or logins are in the file. It does not use the network.
 - It does not cast, target, heal or fight for you. Mouse movement is not blocked; a controller is blocked only when Casting > Controller is set.
 - For transparency: with Wait until stopped on, it briefly holds your own cast request and re-sends it unchanged. It can send simulated key-release events at cast start, and a key-press after Allow Move, for movement keys you are physically holding. With In-game auto-follow on, it stops and restarts the game's auto-follow, or sends `/follow <name>`. It reads the spell's cast time from the game's own spell data. It does not change position packets. Each of these can be switched off in the settings window.
@@ -296,10 +296,10 @@ Report bugs or ask questions on the GitHub Issues page: https://github.com/Benth
 
 | Item | Details |
 |---|---|
-| File in the zip | stopmove/stopmove.lua (about 177 KB, 3,607 lines, plain text) |
-| SHA-256 stopmove.zip | 9440239cccd4ca608d33046fdf9141a8f9094b40eaf896d674646421148d5f62 |
-| SHA-256 stopmove.lua | b0750e5b64fd40ffb0bd1d4e6b7e1480a6e8c2eedfce344fbf4f09286cd66059 |
-| Changes in v3.2 | Pre-release. Controller option (left stick or whole controller while casting); single-client mode (one row with one client, Show only this character, Show an empty row with no second client); Blue & white colours for Vex. Controller support and single-client mode thanks to Stieg. |
+| File in the zip | stopmove/stopmove.lua (about 177 KB, 3,615 lines, plain text) |
+| SHA-256 stopmove.zip | 29ee983df809f651c601b35c12e6d76b3693129b5d4690516694b358cdad9bac |
+| SHA-256 stopmove.lua | 619590c149fd001d716deea63ed91aceccf6a108cce748d700caa23ce9643787 |
+| Changes in v3.2 | Pre-release. Controller option (left stick or whole controller while casting, and auto-run stopped); single-client mode (one row with one client, Show only this character, Show an empty row with no second client); Blue & white colours for Vex. Controller support and single-client mode thanks to Stieg. |
 | Changes in v3.1 | Settings window brought closer to VanaCore's menu: a window scale (75% to 150%, per character), a top bar with the section name, shrink and close, Segoe UI text under VanaCore, and VanaCore-style sliders (they replace the Timing and Widget size number boxes). |
 | Changes in v3.0 | Classic, Vex and Hex link themes, each with its own settings and Reset; new VanaCore-style settings window with Search; Save and load, Push and Copy to the other client; looks per character; red INT on interrupted casts; paralyzed and intimidated casts count as interrupted; the safety timer covers each spell's own cast time and Max cast lock defaults to 9 s; Shift + drag; widget UI and Allow Move buttons removed. |
 | Changes in v2.0 | In-game auto-follow option with a Follow after cast name box; "Release now" renamed Allow Move, added as `/stopmove move`, frees both clients and re-presses held movement keys; Letter inside the shape widget; mouse-wheel resizing and a Widget size slider; Hold position while casting removed, so position packets are never changed. |

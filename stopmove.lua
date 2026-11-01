@@ -1338,6 +1338,14 @@ ashita.events.register('xinput_state', 'stopmove_xinput_state', function(e)
 end)
 local pad_off = false           -- did StopMove turn the controllers off?
 local function pad_tick()
+    -- the controller's auto-run is the game's own running state, which no stick or button
+    -- block reaches: stop plain auto-run (not a /follow) for as long as the cast lasts
+    if enabled and casting and block_pad ~= 0 then
+        pcall(function()
+            local af = AshitaCore:GetMemoryManager():GetAutoFollow()
+            if af:GetIsAutoRunning() ~= 0 and af:GetFollowTargetIndex() == 0 then af:SetIsAutoRunning(0) end
+        end)
+    end
     local want = enabled and casting and block_pad == 2
     if want == pad_off then return end
     local vana = rawget(_G, 'vana')
@@ -2468,7 +2476,7 @@ local function draw_config()
             v = seg('Controller', { { 0, 'Off' }, { 1, 'Left stick' }, { 2, 'Whole controller' } }, block_pad); if v ~= nil then block_pad = v end
             v = switch('Release held keys at cast start', inject);           if v ~= nil then inject = v end
             note('* W / A / S / D also stop working in chat while you cast.')
-            note('Controller: Left stick stops the stick moving you while you cast (Xbox / XInput controllers). Whole controller turns every controller off while you cast, any kind, buttons included; it comes back when the cast lock ends.')
+            note('Controller: Left stick stops the stick moving you while you cast (Xbox / XInput controllers). Whole controller turns every controller off while you cast, any kind, buttons included; it comes back when the cast lock ends. Either one also stops auto-run while you cast.')
             section('BEFORE THE CAST', function() wait_for_stop = true end)
             v = switch('Wait until stopped before casting', wait_for_stop);  if v ~= nil then wait_for_stop = v; pending = nil end
             note('If you press a spell while moving, it is held until you have stood still for the spell cast delay (Timing).')

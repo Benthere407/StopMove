@@ -20,7 +20,7 @@
 
 addon.name    = 'stopmove'
 addon.author  = 'Claude'
-addon.version = '3.2.1'
+addon.version = '3.2.2'
 addon.desc    = 'Blocks numpad movement while casting (toggleable, multi-client aware).'
 addon.link    = ''
 
@@ -1319,16 +1319,17 @@ ashita.events.register('key_state', 'stopmove_key_state', function(e)
     end
 end)
 
--- The controller while casting (Casting > Controller). Left stick: the XInput
--- state the game is about to read gets its left stick centred. Whole controller:
--- VanaCore turns every controller off until the cast lock ends.
+-- The controller while casting (Casting > Controller), and while a cast is held by
+-- Wait until stopped (so the stick can't keep you moving through the hold). Left
+-- stick: the XInput state the game is about to read gets its left stick centred.
+-- Whole controller: VanaCore turns every controller off until the cast lock ends.
 pcall(ffi.cdef, [[
     typedef struct { uint16_t wButtons; uint8_t bLeftTrigger; uint8_t bRightTrigger;
                      int16_t sThumbLX; int16_t sThumbLY; int16_t sThumbRX; int16_t sThumbRY; } sm_XPAD;
     typedef struct { uint32_t dwPacketNumber; sm_XPAD Gamepad; } sm_XSTATE;
 ]])
 ashita.events.register('xinput_state', 'stopmove_xinput_state', function(e)
-    if not (enabled and casting and block_pad == 1) then return end
+    if not (enabled and (casting or pending) and block_pad == 1) then return end
     local ptr = e.state_modified or e.state
     if ptr == nil then return end
     pcall(function()
@@ -1340,13 +1341,13 @@ local pad_off = false           -- did StopMove turn the controllers off?
 local function pad_tick()
     -- the controller's auto-run is the game's own running state, which no stick or button
     -- block reaches: stop plain auto-run (not a /follow) for as long as the cast lasts
-    if enabled and casting and block_pad ~= 0 then
+    if enabled and (casting or pending) and block_pad ~= 0 then
         pcall(function()
             local af = AshitaCore:GetMemoryManager():GetAutoFollow()
             if af:GetIsAutoRunning() ~= 0 and af:GetFollowTargetIndex() == 0 then af:SetIsAutoRunning(0) end
         end)
     end
-    local want = enabled and casting and block_pad == 2
+    local want = enabled and (casting or pending) and block_pad == 2 and true or false
     if want == pad_off then return end
     local vana = rawget(_G, 'vana')
     if not (vana and vana.gamepad and vana.gamepad.disable) then return end
@@ -2476,7 +2477,7 @@ local function draw_config()
             v = seg('Controller', { { 0, 'Off' }, { 1, 'Left stick' }, { 2, 'Whole controller' } }, block_pad); if v ~= nil then block_pad = v end
             v = switch('Release held keys at cast start', inject);           if v ~= nil then inject = v end
             note('* W / A / S / D also stop working in chat while you cast.')
-            note('Controller: Left stick stops the stick moving you while you cast (Xbox / XInput controllers). Whole controller turns every controller off while you cast, any kind, buttons included; it comes back when the cast lock ends. Either one also stops auto-run while you cast.')
+            note('Controller: Left stick stops the stick moving you while you cast (Xbox / XInput controllers). Whole controller turns every controller off while you cast, any kind, buttons included; it comes back when the cast lock ends. Either one also stops auto-run while you cast, and both start as soon as a spell is held by Wait until stopped, so the stick cannot keep you moving through the hold.')
             section('BEFORE THE CAST', function() wait_for_stop = true end)
             v = switch('Wait until stopped before casting', wait_for_stop);  if v ~= nil then wait_for_stop = v; pending = nil end
             note('If you press a spell while moving, it is held until you have stood still for the spell cast delay (Timing).')

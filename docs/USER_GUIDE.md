@@ -1,6 +1,6 @@
 # StopMove user guide
 
-_Version 3.2.1  |  Ashita v4 addon  |  user guide_
+_Version 3.2.2  |  Ashita v4 addon  |  user guide_
 
 > **Download:** https://github.com/Benthere407/StopMove/releases/latest  
 > **Project page:** https://github.com/Benthere407/StopMove  
@@ -18,13 +18,17 @@ StopMove blocks your numpad movement keys (and, if you want, W/A/S/D) while you 
 
 <p align="center"><img src="images/3.0/classic-ffxi-menu.png" width="191" alt="The Classic theme, as in 2.0."><br><em>The Classic theme, as in 2.0.</em></p>
 
+### What's new in 3.2.2
+
+- **Fixed: spells cast on a controller before you had stopped.** With Casting > Controller set to **Left stick** or **Whole controller**, the controller block and the auto-run stop now start as soon as Wait until stopped holds a spell, so you stop and the **Spell cast delay** counts down before the spell goes out. (Before, the stick kept you moving through the hold, and the spell went out when **Max hold** ran out.)
+
 ### What's new in 3.2.1
 
 - **Fixed: controller auto-run** kept running during a cast. With Casting > Controller set to **Left stick** or **Whole controller**, auto-run now stops when a cast starts and stays stopped until the cast ends.
 
 ### What's new in 3.2
 
-3.2 and 3.2.1 are pre-releases. Controller support and single-client mode are thanks to **Stieg**.
+3.2, 3.2.1 and 3.2.2 are pre-releases. Controller support and single-client mode are thanks to **Stieg**.
 
 - **Controller** (Casting > Movement keys): **Left stick** stops an Xbox-style (XInput) controller's left stick moving you while you cast; **Whole controller** turns every controller off while you cast, buttons included, until the cast lock ends. Either one also stops auto-run while you cast.
 - **Single-client mode**: with only one client running, the widget shows just that character. **Show only this character** (General) leaves the other client out even while it is running, and **Show an empty row with no second client** brings the old empty row back.
@@ -287,7 +291,7 @@ To start fresh, use Reset all, or unload the addon and delete the settings folde
 ### Safety
 
 - One plain-text Lua file. No .exe or .dll. The zip is a normal zip, not self-extracting.
-- SHA-256 of stopmove.zip: f7da51ed3cbd771ce0ca19c39aa6c662ad23be6a8c2bb41de77da4a43bd81bce
+- SHA-256 of stopmove.zip: 4d8b3dbd08c787e9b1cc04ba89f26a8cab66f021856f9b4aa616257fed61710a
 - No account details, tokens or logins are in the file. It does not use the network.
 - It does not cast, target, heal or fight for you. Mouse movement is not blocked; a controller is blocked only when Casting > Controller is set.
 - For transparency: with Wait until stopped on, it briefly holds your own cast request and re-sends it unchanged. It can send simulated key-release events at cast start, and a key-press after Allow Move, for movement keys you are physically holding. With In-game auto-follow on, it stops and restarts the game's auto-follow, or sends `/follow <name>`. It reads the spell's cast time from the game's own spell data. It does not change position packets. Each of these can be switched off in the settings window.
@@ -300,9 +304,10 @@ Report bugs or ask questions on the GitHub Issues page: https://github.com/Benth
 
 | Item | Details |
 |---|---|
-| File in the zip | stopmove/stopmove.lua (about 177 KB, 3,615 lines, plain text) |
-| SHA-256 stopmove.zip | f7da51ed3cbd771ce0ca19c39aa6c662ad23be6a8c2bb41de77da4a43bd81bce |
-| SHA-256 stopmove.lua | 965a1d13787708383646ba4c1d5795348c77ddc7b8580b4812e9c27022d406bb |
+| File in the zip | stopmove/stopmove.lua (about 177 KB, 3,616 lines, plain text) |
+| SHA-256 stopmove.zip | 4d8b3dbd08c787e9b1cc04ba89f26a8cab66f021856f9b4aa616257fed61710a |
+| SHA-256 stopmove.lua | 3099efbb880d8d99906c2ba0c97819a552cf0fbf930c41e2619b827474dbc1ad |
+| Changes in v3.2.2 | Pre-release. Fixed: on a controller, the stick or auto-run kept you moving while Wait until stopped held a spell, so it went out at Max hold while you were still moving. The controller block and auto-run stop now start as soon as a spell is held. |
 | Changes in v3.2.1 | Pre-release. Fixed: controller auto-run now stops during a cast when Casting > Controller is set. |
 | Changes in v3.2 | Pre-release. Controller option (left stick or whole controller while casting, and auto-run stopped); single-client mode (one row with one client, Show only this character, Show an empty row with no second client); Blue & white colours for Vex. Controller support and single-client mode thanks to Stieg. |
 | Changes in v3.1 | Settings window brought closer to VanaCore's menu: a window scale (75% to 150%, per character), a top bar with the section name, shrink and close, Segoe UI text under VanaCore, and VanaCore-style sliders (they replace the Timing and Widget size number boxes). |

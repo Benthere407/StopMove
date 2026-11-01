@@ -28,7 +28,7 @@ StopMove blocks your numpad movement keys (and, if you want, W/A/S/D) while you 
 
 ### What's new in 3.2
 
-3.2, 3.2.1 and 3.2.2 are pre-releases. Controller support and single-client mode are thanks to **Stieg**.
+3.2 and 3.2.1 were pre-releases; 3.2.2 is the full release. Controller support and single-client mode are thanks to **Stieg**.
 
 - **Controller** (Casting > Movement keys): **Left stick** stops an Xbox-style (XInput) controller's left stick moving you while you cast; **Whole controller** turns every controller off while you cast, buttons included, until the cast lock ends. Either one also stops auto-run while you cast.
 - **Single-client mode**: with only one client running, the widget shows just that character. **Show only this character** (General) leaves the other client out even while it is running, and **Show an empty row with no second client** brings the old empty row back.
@@ -307,7 +307,7 @@ Report bugs or ask questions on the GitHub Issues page: https://github.com/Benth
 | File in the zip | stopmove/stopmove.lua (about 177 KB, 3,616 lines, plain text) |
 | SHA-256 stopmove.zip | 4d8b3dbd08c787e9b1cc04ba89f26a8cab66f021856f9b4aa616257fed61710a |
 | SHA-256 stopmove.lua | 3099efbb880d8d99906c2ba0c97819a552cf0fbf930c41e2619b827474dbc1ad |
-| Changes in v3.2.2 | Pre-release. Fixed: on a controller, the stick or auto-run kept you moving while Wait until stopped held a spell, so it went out at Max hold while you were still moving. The controller block and auto-run stop now start as soon as a spell is held. |
+| Changes in v3.2.2 | Full release of 3.2. Fixed: on a controller, the stick or auto-run kept you moving while Wait until stopped held a spell, so it went out at Max hold while you were still moving. The controller block and auto-run stop now start as soon as a spell is held. |
 | Changes in v3.2.1 | Pre-release. Fixed: controller auto-run now stops during a cast when Casting > Controller is set. |
 | Changes in v3.2 | Pre-release. Controller option (left stick or whole controller while casting, and auto-run stopped); single-client mode (one row with one client, Show only this character, Show an empty row with no second client); Blue & white colours for Vex. Controller support and single-client mode thanks to Stieg. |
 | Changes in v3.1 | Settings window brought closer to VanaCore's menu: a window scale (75% to 150%, per character), a top bar with the section name, shrink and close, Segoe UI text under VanaCore, and VanaCore-style sliders (they replace the Timing and Widget size number boxes). |

@@ -17,7 +17,7 @@ An Ashita v4 addon for FFXI. While you cast a spell it blocks your numpad moveme
 - **Three themes.** Classic, plus **Vex** and **Hex link** modelled on the YunaUI party lists, each with its own settings, views and letter-only styles. Vex also comes in Blue & white. Each character keeps its own look.
 - **Settings window** in the VanaCore menu style, with Search, a window scale (75% to 150%), saved setups, and push / copy to the other client.
 
-Version: **3.2.2** (pre-release; the latest full release is 3.1). Tested on a current LandSandBoat (LSB) server running locally.
+Version: **3.2.2**. Tested on a current LandSandBoat (LSB) server running locally.
 
 - [User guide](docs/USER_GUIDE.md) (also as [StopMove_Guide.docx](StopMove_Guide.docx))
 - [Changelog](CHANGELOG.md)
@@ -28,7 +28,7 @@ Version: **3.2.2** (pre-release; the latest full release is 3.1). Tested on a cu
 
 ## Install
 
-1. Download `stopmove.zip` from the [latest release](https://github.com/Benthere407/StopMove/releases/latest) (or the 3.2.2 pre-release on the [releases page](https://github.com/Benthere407/StopMove/releases)) and unzip it. You get a folder called `stopmove` containing `stopmove.lua`.
+1. Download `stopmove.zip` from the [latest release](https://github.com/Benthere407/StopMove/releases/latest) and unzip it. You get a folder called `stopmove` containing `stopmove.lua`.
 2. Copy the whole `stopmove` folder into your Ashita addons folder, so this file exists: `<Ashita folder>\addons\stopmove\stopmove.lua`
 3. In game, type `/addon load stopmove`.
 4. To load it automatically, add `/addon load stopmove` to your Ashita startup script (usually `<Ashita folder>\scripts\default.txt`).

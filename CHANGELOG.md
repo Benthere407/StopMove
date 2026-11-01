@@ -1,6 +1,8 @@
 # StopMove changelog
 
-## 3.2.2 (pre-release)
+## 3.2.2
+
+3.2.2 is the first full release of 3.2. 3.2 and 3.2.1 were pre-releases; everything below up to 3.1 is part of it.
 
 ### Fixed
 - **Spells cast on a controller before you had stopped.** If you press a spell while moving, Wait until stopped holds it until you have stood still for the **Spell cast delay**. On a controller nothing stopped you during that hold: the stick or auto-run kept you moving, so the delay never started, and after **Max hold** the spell was sent while you were still running. With Casting > Controller set to **Left stick** or **Whole controller**, the stick block, the whole-controller block and the auto-run stop now start as soon as a spell is held, not only once the cast begins. You stop, the Spell cast delay counts down, and then the spell goes out.
